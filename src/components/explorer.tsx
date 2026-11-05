@@ -559,95 +559,99 @@ export default function Explorer() {
           </span>
         </div>
         <form className="query-form" onSubmit={search}>
-          <label className="address-input">
-            <Search size={19} />
-            <input
-              aria-label="Wallet address"
-              placeholder="Paste an Ethereum wallet address to begin"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <kbd>0x</kbd>
-          </label>
-          <label className="select-field">
-            <span>Period</span>
-            <select
-              aria-label="Date range"
-              value={days}
-              onChange={(e) => setDays(e.target.value)}
+          <div className="query-search-row">
+            <label className="address-input">
+              <Search size={19} />
+              <input
+                aria-label="Wallet address"
+                placeholder="Paste an Ethereum wallet address to begin"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <kbd>0x</kbd>
+            </label>
+            <button
+              type="submit"
+              className="button primary search-button"
+              disabled={!!busy}
             >
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-              <option value="custom">Custom dates</option>
-            </select>
-            <ChevronDown size={14} />
-          </label>
-          <label className="select-field">
-            <span>Assets</span>
-            <select
-              aria-label="Query asset"
-              value={queryAsset}
-              onChange={(e) => setQueryAsset(e.target.value)}
-            >
-              <option value="all">ETH + tokens</option>
-              <option value="native">ETH only</option>
-              <option value="token">Token contract</option>
-            </select>
-            <ChevronDown size={14} />
-          </label>
-          <button
-            type="submit"
-            className="button primary search-button"
-            disabled={!!busy}
-          >
-            {busy ? (
-              <LoaderCircle className="spin" size={16} />
-            ) : (
-              <ArrowRight size={17} />
-            )}
-            Explore wallet
-          </button>
-        </form>
-        {(days === "custom" || queryAsset === "token") && (
-          <div className="extra-query">
-            {days === "custom" && (
-              <>
-                <label>
-                  From (UTC)
-                  <input
-                    aria-label="Start date"
-                    type="date"
-                    value={customStart}
-                    onChange={(e) => setCustomStart(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Until, exclusive (UTC)
-                  <input
-                    aria-label="End date"
-                    type="date"
-                    value={customEnd}
-                    onChange={(e) => setCustomEnd(e.target.value)}
-                  />
-                </label>
-              </>
-            )}
-            {queryAsset === "token" && (
-              <label className="grow">
-                Token contract
-                <input
-                  aria-label="Token contract"
-                  placeholder="0x…"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                />
-              </label>
-            )}
+              <span>Explore wallet</span>
+              {busy ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : (
+                <ArrowRight size={17} />
+              )}
+            </button>
           </div>
-        )}
+          <div className="query-options">
+            <label className="select-field">
+              <span>Period</span>
+              <select
+                aria-label="Date range"
+                value={days}
+                onChange={(e) => setDays(e.target.value)}
+              >
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="custom">Custom dates</option>
+              </select>
+              <ChevronDown size={14} />
+            </label>
+            <label className="select-field">
+              <span>Assets</span>
+              <select
+                aria-label="Query asset"
+                value={queryAsset}
+                onChange={(e) => setQueryAsset(e.target.value)}
+              >
+                <option value="all">ETH + tokens</option>
+                <option value="native">ETH only</option>
+                <option value="token">Token contract</option>
+              </select>
+              <ChevronDown size={14} />
+            </label>
+          </div>
+          {(days === "custom" || queryAsset === "token") && (
+            <div className="extra-query">
+              {days === "custom" && (
+                <>
+                  <label>
+                    From (UTC)
+                    <input
+                      aria-label="Start date"
+                      type="date"
+                      value={customStart}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Until, exclusive (UTC)
+                    <input
+                      aria-label="End date"
+                      type="date"
+                      value={customEnd}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
+              {queryAsset === "token" && (
+                <label className="grow">
+                  Token contract
+                  <input
+                    aria-label="Token contract"
+                    placeholder="0x…"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                  />
+                </label>
+              )}
+            </div>
+          )}
+        </form>
       </section>
 
       {message && (
@@ -772,60 +776,65 @@ export default function Explorer() {
                 Table
               </button>
             </div>
-            <span className="toolbar-divider" />
-            <SlidersHorizontal size={14} className="muted" />
-            <select
-              aria-label="Filter loaded assets"
-              disabled={!investigation}
-              value={filters.asset}
-              onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  asset: e.target.value,
-                  minimum: "",
-                }))
-              }
-            >
-              <option value="all">All loaded assets</option>
-              {assets.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.symbol}
-                  {a.contract ? ` · ${shortAddress(a.contract)}` : ""}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Transfer direction"
-              disabled={!investigation}
-              value={filters.direction}
-              onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  direction:
-                    e.target.value === "in"
-                      ? "in"
-                      : e.target.value === "out"
-                        ? "out"
-                        : "both",
-                }))
-              }
-            >
-              <option value="both">Both directions</option>
-              <option value="in">Into starting wallet</option>
-              <option value="out">Out of starting wallet</option>
-            </select>
-            {filters.asset !== "all" && (
-              <input
-                className="minimum-input"
-                aria-label="Minimum transfer amount"
-                inputMode="decimal"
-                placeholder="Min. amount"
-                value={filters.minimum}
-                onChange={(e) =>
-                  setFilters((f) => ({ ...f, minimum: e.target.value }))
-                }
+            <div className="filter-controls">
+              <SlidersHorizontal
+                size={14}
+                className="muted"
+                aria-hidden="true"
               />
-            )}
+              <select
+                aria-label="Filter loaded assets"
+                disabled={!investigation}
+                value={filters.asset}
+                onChange={(e) =>
+                  setFilters((f) => ({
+                    ...f,
+                    asset: e.target.value,
+                    minimum: "",
+                  }))
+                }
+              >
+                <option value="all">All loaded assets</option>
+                {assets.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.symbol}
+                    {a.contract ? ` · ${shortAddress(a.contract)}` : ""}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Transfer direction"
+                disabled={!investigation}
+                value={filters.direction}
+                onChange={(e) =>
+                  setFilters((f) => ({
+                    ...f,
+                    direction:
+                      e.target.value === "in"
+                        ? "in"
+                        : e.target.value === "out"
+                          ? "out"
+                          : "both",
+                  }))
+                }
+              >
+                <option value="both">Both directions</option>
+                <option value="in">Into starting wallet</option>
+                <option value="out">Out of starting wallet</option>
+              </select>
+              {filters.asset !== "all" && (
+                <input
+                  className="minimum-input"
+                  aria-label="Minimum transfer amount"
+                  inputMode="decimal"
+                  placeholder="Min. amount"
+                  value={filters.minimum}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, minimum: e.target.value }))
+                  }
+                />
+              )}
+            </div>
             <button
               className="text-button compare-button"
               disabled={!investigation || !!busy}

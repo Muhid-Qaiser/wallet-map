@@ -1,0 +1,541 @@
+:root {
+  --page-gutter: 32px;
+  --control-height: 36px;
+  --control-radius: 6px;
+  --control-gap: 8px;
+}
+
+::selection {
+  color: var(--bg);
+  background: var(--accent);
+}
+input,
+textarea {
+  caret-color: var(--accent);
+}
+
+.query-section {
+  width: auto;
+  max-width: none;
+  margin: 0 var(--page-gutter);
+  padding: 24px 0;
+}
+.query-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 24px;
+  margin-bottom: 12px;
+}
+.query-form {
+  display: grid;
+  gap: 12px;
+}
+.query-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 5px;
+  border: 1px solid #3b485b;
+  border-radius: 9px;
+  background: var(--panel);
+}
+.query-search-row:focus-within {
+  border-color: var(--accent);
+}
+.address-input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 12px;
+  color: #9aaac0;
+}
+.address-input input {
+  width: 100%;
+  min-width: 0;
+  height: 46px;
+  padding: 0;
+  outline: none;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.address-input input::placeholder {
+  font-family: var(--font);
+  color: #91a0b5;
+}
+.address-input kbd {
+  flex-shrink: 0;
+  color: #9aaac0;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  gap: var(--control-gap);
+  padding: 8px 12px;
+  border: 1px solid #354152;
+  border-radius: var(--control-radius);
+  background: #1c2532;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 18px;
+  white-space: nowrap;
+  transition:
+    background 150ms,
+    border-color 150ms;
+}
+.button:hover:not(:disabled) {
+  background: #293548;
+  border-color: #55637b;
+}
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #211b13;
+  font-weight: 650;
+}
+.button.primary:hover:not(:disabled) {
+  background: #f1cd95;
+  border-color: #f1cd95;
+}
+.button:active:not(:disabled),
+.text-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.search-button {
+  min-width: 168px;
+  height: 46px;
+  padding-inline: 20px;
+}
+.query-options {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.select-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  height: var(--control-height);
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--panel);
+}
+.select-field > span {
+  font-size: 11px;
+  color: #99a9be;
+}
+.select-field select {
+  appearance: none;
+  min-width: 100px;
+  height: 100%;
+  font-size: 12px;
+  outline: none;
+}
+.select-field svg {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #99a9be;
+  pointer-events: none;
+}
+.select-field:focus-within {
+  border-color: var(--accent);
+}
+.extra-query {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.extra-query label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #99a9be;
+  font-size: 11px;
+}
+.extra-query input {
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--panel);
+  font-size: 12px;
+}
+.extra-query .grow input {
+  flex: 1;
+}
+
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.workspace-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+}
+.workspace-title > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.workspace-title input {
+  width: 100%;
+  max-width: 260px;
+  min-width: 60px;
+  height: var(--control-height);
+  padding: 0;
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+.workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--control-gap);
+  flex-shrink: 0;
+}
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  color: #9aaac0;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.text-button:hover:not(:disabled) {
+  background: #202c3d;
+  color: var(--text);
+}
+.workspace-actions > .text-button,
+.export-menu summary {
+  min-height: var(--control-height);
+  padding: 8px 10px;
+  border: 1px solid #354152;
+  border-radius: var(--control-radius);
+  background: #192331;
+  color: #becbdd;
+  font-size: 11px;
+  line-height: 18px;
+}
+.export-menu summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.export-menu summary:hover {
+  background: #263348;
+  border-color: #55637b;
+}
+.export-menu > div {
+  top: calc(100% + 8px);
+}
+.filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: #131b26;
+  flex-shrink: 0;
+}
+.view-switch {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: var(--control-height);
+  padding: 3px;
+  border: 1px solid #354152;
+  border-radius: var(--control-radius);
+  background: #0e151f;
+  flex-shrink: 0;
+}
+.view-switch button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 64px;
+  padding: 0 8px;
+  border-radius: 3px;
+  color: #9aaac0;
+  font-size: 11px;
+}
+.view-switch button.active {
+  background: #293446;
+  color: #e7edf6;
+}
+.filter-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--control-gap);
+  flex: 1;
+  min-width: 0;
+}
+.filter-controls > svg {
+  flex-shrink: 0;
+  color: #9aaac0;
+}
+.filter-controls select,
+.minimum-input {
+  height: var(--control-height);
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid #354152;
+  border-radius: var(--control-radius);
+  background: #17212f;
+  color: #aabbd0;
+  font-size: 11px;
+  outline-offset: 3px;
+}
+.filter-controls select {
+  max-width: 170px;
+  flex: 1;
+}
+.minimum-input {
+  width: 100px;
+}
+.compare-button {
+  min-height: var(--control-height);
+  margin-left: auto;
+  padding: 8px 10px;
+  border-color: #354152;
+  background: #192331;
+  color: #becbdd;
+}
+.icon-button {
+  min-width: 32px;
+  min-height: 32px;
+}
+.full-address .icon-button {
+  min-width: 26px;
+  min-height: 26px;
+}
+.graph-controls button {
+  width: 36px;
+  height: 36px;
+}
+.address-actions > .button {
+  min-height: 40px;
+}
+.address-actions > .button:not(.primary) {
+  width: 40px;
+  padding: 0;
+  flex-shrink: 0;
+}
+.evidence-panel .panel-header {
+  min-height: 64px;
+  height: 64px;
+  padding-inline: 20px;
+  font-size: 13px;
+}
+
+@media (max-width: 1200px) {
+  :root {
+    --page-gutter: 24px;
+  }
+  .workspace-heading,
+  .filter-toolbar {
+    padding-inline: 16px;
+  }
+  .workspace-title input {
+    max-width: 210px;
+  }
+  .filter-controls > svg {
+    display: none;
+  }
+  .filter-controls select {
+    font-size: 10px;
+  }
+}
+@media (max-width: 1100px) {
+  .filter-controls {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .filter-controls select {
+    max-width: none;
+  }
+  .compare-button {
+    order: 2;
+  }
+}
+@media (max-width: 960px) {
+  .workspace-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .workspace-title {
+    flex-basis: 100%;
+  }
+  .workspace-title input {
+    max-width: none;
+  }
+  .workspace-actions {
+    width: 100%;
+  }
+  .workspace-actions > .text-button,
+  .workspace-actions > .export-menu {
+    flex: 1;
+  }
+  .workspace-actions > .export-menu summary {
+    width: 100%;
+  }
+}
+@media (max-width: 740px) {
+  :root {
+    --page-gutter: 16px;
+    --control-height: 40px;
+  }
+  .query-section {
+    padding-block: 16px;
+  }
+  .query-heading {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .query-search-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 6px;
+  }
+  .address-input {
+    padding-inline: 8px;
+    gap: 8px;
+  }
+  .address-input input {
+    height: 42px;
+    font-size: 12px;
+  }
+  .search-button {
+    width: 100%;
+    min-width: 0;
+    height: 42px;
+    font-size: 12px;
+  }
+  .query-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .select-field {
+    height: 44px;
+    gap: 6px;
+    padding: 0 24px 0 10px;
+  }
+  .select-field > span {
+    font-size: 10px;
+  }
+  .select-field select {
+    min-width: 0;
+    width: 100%;
+    font-size: 11px;
+  }
+  .select-field svg {
+    right: 7px;
+    width: 12px;
+  }
+  .extra-query {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .extra-query label {
+    display: grid;
+    grid-template-columns: 115px minmax(0, 1fr);
+    gap: 8px;
+    font-size: 11px;
+  }
+  .extra-query input {
+    width: 100%;
+    font-size: 11px;
+  }
+  .workspace-heading {
+    padding: 12px;
+  }
+  .workspace-title {
+    min-height: 28px;
+    font-size: 12px;
+  }
+  .workspace-title input {
+    height: 28px;
+    font-size: 12px;
+  }
+  .workspace-actions {
+    gap: 8px;
+  }
+  .workspace-actions > .text-button,
+  .export-menu summary {
+    min-height: 40px;
+    font-size: 11px;
+  }
+  .filter-toolbar {
+    gap: 8px;
+    padding: 12px;
+  }
+  .view-switch button {
+    min-width: 58px;
+  }
+  .compare-button {
+    gap: 6px;
+    padding-inline: 9px;
+    font-size: 11px;
+  }
+  .filter-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .filter-controls select {
+    width: 100%;
+    max-width: none;
+    font-size: 10px;
+  }
+  .minimum-input {
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+  .button,
+  .icon-button,
+  .graph-controls button {
+    min-height: 40px;
+  }
+  .graph-controls button {
+    width: 40px;
+  }
+  .full-address .icon-button {
+    min-height: 26px;
+  }
+  .evidence-panel .panel-header {
+    min-height: 52px;
+    height: 52px;
+    padding-inline: 20px;
+  }
+}
