@@ -53,6 +53,8 @@ import {
   type Connection,
   type Filters,
   type Investigation,
+  type Neighborhood,
+  type Snapshot,
   type Transfer,
 } from "@/lib/domain";
 import { chainIdSchema, networks, type ChainId } from "@/lib/networks";
@@ -81,6 +83,12 @@ type Selection =
   | { kind: "connection"; id: string }
   | null;
 const errorSchema = z.object({ error: z.string() });
+const autoResultSchema = z.object({
+  snapshot: snapshotSchema,
+  first: neighborhoodSchema,
+  connections: z.number().int().nonnegative(),
+  incomplete: z.array(chainIdSchema),
+});
 async function api<T>(
   path: string,
   body: object,
@@ -123,7 +131,7 @@ export default function Explorer() {
     null,
   );
   const [query, setQuery] = useState("");
-  const [queryChainId, setQueryChainId] = useState<ChainId>(1);
+  const [queryChainId, setQueryChainId] = useState<ChainId | "auto">("auto");
   const [days, setDays] = useState("30");
   const [queryAsset, setQueryAsset] = useState("all");
   const [token, setToken] = useState("");
@@ -160,7 +168,10 @@ export default function Explorer() {
   const notify = (text: string, kind: "error" | "success" = "success") =>
     setMessage({ text, kind });
   const activeNetwork =
-    networks[investigation?.snapshot.chainId ?? queryChainId];
+    networks[
+      investigation?.snapshot.chainId ??
+        (queryChainId === "auto" ? 1 : queryChainId)
+    ];
   const graph = useMemo(
     () => (investigation ? graphData(investigation, filters) : null),
     [investigation, filters],
@@ -276,29 +287,49 @@ export default function Explorer() {
     abort.current?.abort();
     const controller = new AbortController();
     abort.current = controller;
-    setBusy("Resolving finalized snapshot…");
+    setBusy(
+      queryChainId === "auto"
+        ? "Comparing networks…"
+        : "Resolving finalized snapshot…",
+    );
     setMessage(null);
     try {
-      const snapshot = await api(
-        "snapshot",
-        {
-          address: address.data,
-          chainId: queryChainId,
-          start: start.toISOString(),
-          end: end.toISOString(),
-          asset,
-        },
-        snapshotSchema,
-        controller.signal,
-      );
-      if (generation.current !== currentGeneration) return;
-      setBusy("Loading transfers and verifying ETH receipts…");
-      const first = await api(
-        "neighborhood",
-        { address: address.data, queryToken: snapshot.queryToken },
-        neighborhoodSchema,
-        controller.signal,
-      );
+      const request = {
+        address: address.data,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        asset,
+      };
+      let snapshot: Snapshot;
+      let first: Neighborhood;
+      let autoResult: z.infer<typeof autoResultSchema> | undefined;
+      if (queryChainId === "auto") {
+        autoResult = await api(
+          "explore",
+          {
+            ...request,
+            preferredChainId: investigation?.snapshot.chainId ?? 1,
+          },
+          autoResultSchema,
+          controller.signal,
+        );
+        ({ snapshot, first } = autoResult);
+      } else {
+        snapshot = await api(
+          "snapshot",
+          { ...request, chainId: queryChainId },
+          snapshotSchema,
+          controller.signal,
+        );
+        if (generation.current !== currentGeneration) return;
+        setBusy("Loading transfers and verifying ETH receipts…");
+        first = await api(
+          "neighborhood",
+          { address: address.data, queryToken: snapshot.queryToken },
+          neighborhoodSchema,
+          controller.signal,
+        );
+      }
       if (generation.current !== currentGeneration) return;
       const next: Investigation = {
         version: 1,
@@ -325,7 +356,23 @@ export default function Explorer() {
       setUndo([]);
       setBalance(null);
       setTransferLimit(40);
-      if (first.warnings.length) notify(first.warnings.join(" "), "error");
+      if (autoResult) {
+        const summary = first.transfers.length
+          ? `Auto selected ${networks[snapshot.chainId].name} with ${autoResult.connections} connected addresses in the first pages.`
+          : "Auto found no matching transfers in the pages checked.";
+        const warnings = [...first.warnings];
+        if (autoResult.incomplete.length) {
+          warnings.push(
+            `Could not fully check ${autoResult.incomplete.map((id) => networks[id].name).join(", ")}.`,
+          );
+        }
+        notify(
+          [summary, ...warnings].join(" "),
+          warnings.length ? "error" : "success",
+        );
+      } else if (first.warnings.length) {
+        notify(first.warnings.join(" "), "error");
+      }
     } catch (error) {
       if (!controller.signal.aborted) notify(errorMessage(error), "error");
     } finally {
@@ -541,7 +588,9 @@ export default function Explorer() {
         <div className="header-right">
           <span className="network-pill" data-testnet={activeNetwork.testnet}>
             <i />
-            {activeNetwork.name}
+            {!investigation && queryChainId === "auto"
+              ? "Auto network"
+              : activeNetwork.name}
             {activeNetwork.testnet && (
               <span className="testnet-tag">Testnet</span>
             )}
@@ -606,12 +655,17 @@ export default function Explorer() {
                 value={queryChainId}
                 disabled={!!busy}
                 onChange={(e) => {
+                  if (e.target.value === "auto") {
+                    setQueryChainId("auto");
+                    return;
+                  }
                   const parsed = chainIdSchema.safeParse(
                     Number(e.target.value),
                   );
                   if (parsed.success) setQueryChainId(parsed.data);
                 }}
               >
+                <option value="auto">Auto (most connections)</option>
                 <optgroup label="Mainnets">
                   <option value={1}>{networks[1].name}</option>
                   <option value={8453}>{networks[8453].name}</option>

@@ -135,6 +135,7 @@ test("real wallet search returns evidence from the live API", async ({
   await page
     .getByRole("textbox", { name: "Wallet address", exact: true })
     .fill("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+  await page.getByLabel("Network", { exact: true }).selectOption("1");
   await page.getByLabel("Date range", { exact: true }).selectOption("7");
   await page
     .getByRole("button", { name: "Explore wallet", exact: true })

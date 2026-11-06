@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const chainIdSchema = z.literal([1, 8453, 11155111, 84532]);
+export const chainIds = [1, 8453, 11155111, 84532] as const;
+export const chainIdSchema = z.literal(chainIds);
 export type ChainId = z.infer<typeof chainIdSchema>;
 
 export const networks = {
