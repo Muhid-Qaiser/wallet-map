@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { addressSchema } from "@/lib/domain";
+import { chainIdSchema } from "@/lib/networks";
 import { firstBlockAt, getBlock } from "@/lib/server/alchemy";
 import {
   AppError,
@@ -12,6 +13,7 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const input = z.object({
+  chainId: chainIdSchema.default(1),
   address: addressSchema,
   start: z.string().datetime(),
   end: z.string().datetime(),
@@ -35,7 +37,8 @@ export async function POST(request: Request) {
         "VALIDATION",
       );
     await guardRequest(request);
-    const finalized = await getBlock("finalized");
+    const { chainId } = body;
+    const finalized = await getBlock("finalized", chainId);
     const finalizedNumber = Number(BigInt(finalized.number));
     const finalizedTime = Number(BigInt(finalized.timestamp)) * 1000;
     const effectiveEnd = Math.min(end, finalizedTime + 1000);
@@ -46,10 +49,10 @@ export async function POST(request: Request) {
         "VALIDATION",
       );
     const [fromBlock, endBoundary] = await Promise.all([
-      firstBlockAt(Math.ceil(start / 1000), finalizedNumber),
+      firstBlockAt(Math.ceil(start / 1000), finalizedNumber, chainId),
       end > finalizedTime
         ? Promise.resolve(finalizedNumber + 1)
-        : firstBlockAt(Math.ceil(end / 1000), finalizedNumber),
+        : firstBlockAt(Math.ceil(end / 1000), finalizedNumber, chainId),
     ]);
     const blockNumber = endBoundary - 1;
     if (blockNumber < fromBlock)
@@ -61,9 +64,9 @@ export async function POST(request: Request) {
     const block =
       blockNumber === finalizedNumber
         ? finalized
-        : await getBlock(`0x${blockNumber.toString(16)}`);
+        : await getBlock(`0x${blockNumber.toString(16)}`, chainId);
     return Response.json({
-      chainId: 1,
+      chainId,
       block: blockNumber,
       hash: block.hash,
       timestamp: new Date(Number(BigInt(block.timestamp)) * 1000).toISOString(),
@@ -73,7 +76,7 @@ export async function POST(request: Request) {
       asset: body.asset,
       queryToken: signToken({
         kind: "query",
-        chainId: 1,
+        chainId,
         fromBlock,
         block: blockNumber,
         hash: block.hash,

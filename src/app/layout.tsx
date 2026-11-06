@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Wallet Map · Follow the connections",
   description:
-    "Explore Ethereum wallet relationships with an interactive graph and transfer-level evidence.",
+    "Explore Ethereum and Base wallet relationships with an interactive graph and transfer evidence.",
   robots: { index: false, follow: false },
 };
 

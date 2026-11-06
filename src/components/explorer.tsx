@@ -55,6 +55,7 @@ import {
   type Investigation,
   type Transfer,
 } from "@/lib/domain";
+import { chainIdSchema, networks, type ChainId } from "@/lib/networks";
 import {
   deleteInvestigation,
   downloadFile,
@@ -122,6 +123,7 @@ export default function Explorer() {
     null,
   );
   const [query, setQuery] = useState("");
+  const [queryChainId, setQueryChainId] = useState<ChainId>(1);
   const [days, setDays] = useState("30");
   const [queryAsset, setQueryAsset] = useState("all");
   const [token, setToken] = useState("");
@@ -157,6 +159,8 @@ export default function Explorer() {
   const dialog = useRef<HTMLDialogElement>(null);
   const notify = (text: string, kind: "error" | "success" = "success") =>
     setMessage({ text, kind });
+  const activeNetwork =
+    networks[investigation?.snapshot.chainId ?? queryChainId];
   const graph = useMemo(
     () => (investigation ? graphData(investigation, filters) : null),
     [investigation, filters],
@@ -230,6 +234,7 @@ export default function Explorer() {
     setUndo([]);
     setMessage(null);
     setQuery(next.roots[0] ?? "");
+    setQueryChainId(next.snapshot.chainId);
     setLayout(0);
     setZoom(0);
     setBalance(null);
@@ -278,6 +283,7 @@ export default function Explorer() {
         "snapshot",
         {
           address: address.data,
+          chainId: queryChainId,
           start: start.toISOString(),
           end: end.toISOString(),
           asset,
@@ -305,11 +311,15 @@ export default function Explorer() {
         expansions: [{ address: address.data, active: true, reveal: 20 }],
         pinned: [],
         hidden: [],
-        notes: investigation?.notes ?? {},
+        notes: {},
         positions: {},
         savedAt: now.toISOString(),
       };
-      setInvestigation((current) => ({ ...next, notes: current?.notes ?? {} }));
+      setInvestigation((current) => ({
+        ...next,
+        notes:
+          current?.snapshot.chainId === snapshot.chainId ? current.notes : {},
+      }));
       setSelection({ kind: "address", address: address.data });
       setFilters({ asset: "all", direction: "both", minimum: "" });
       setUndo([]);
@@ -414,7 +424,7 @@ export default function Explorer() {
   async function showBalance(address: Address) {
     if (!investigation) return;
     if (investigation.mode === "sample")
-      return notify("Balances are available for live Ethereum investigations.");
+      return notify("Balances are available for live investigations.");
     const currentGeneration = generation.current;
     setBusy("Reading balance at snapshot…");
     try {
@@ -529,9 +539,12 @@ export default function Explorer() {
           </button>
         </nav>
         <div className="header-right">
-          <span className="network-pill">
+          <span className="network-pill" data-testnet={activeNetwork.testnet}>
             <i />
-            Ethereum<span className="mainnet">mainnet</span>
+            {activeNetwork.name}
+            {activeNetwork.testnet && (
+              <span className="testnet-tag">Testnet</span>
+            )}
           </span>
           <button
             className="icon-button"
@@ -551,7 +564,7 @@ export default function Explorer() {
         </div>
       </header>
 
-      <section className="query-section" aria-label="Search Ethereum activity">
+      <section className="query-section" aria-label="Search wallet activity">
         <div className="query-heading">
           <span className="eyebrow">FOLLOW THE CONNECTIONS</span>
           <span className="read-only">
@@ -564,7 +577,7 @@ export default function Explorer() {
               <Search size={19} />
               <input
                 aria-label="Wallet address"
-                placeholder="Paste an Ethereum wallet address to begin"
+                placeholder="Paste a wallet address to begin"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 spellCheck={false}
@@ -586,6 +599,30 @@ export default function Explorer() {
             </button>
           </div>
           <div className="query-options">
+            <label className="select-field network-field">
+              <span>Network</span>
+              <select
+                aria-label="Network"
+                value={queryChainId}
+                disabled={!!busy}
+                onChange={(e) => {
+                  const parsed = chainIdSchema.safeParse(
+                    Number(e.target.value),
+                  );
+                  if (parsed.success) setQueryChainId(parsed.data);
+                }}
+              >
+                <optgroup label="Mainnets">
+                  <option value={1}>{networks[1].name}</option>
+                  <option value={8453}>{networks[8453].name}</option>
+                </optgroup>
+                <optgroup label="Testnets">
+                  <option value={11155111}>{networks[11155111].name}</option>
+                  <option value={84532}>{networks[84532].name}</option>
+                </optgroup>
+              </select>
+              <ChevronDown size={14} />
+            </label>
             <label className="select-field">
               <span>Period</span>
               <select
@@ -854,6 +891,7 @@ export default function Explorer() {
               <>
                 {view === "graph" ? (
                   <Graph
+                    key={investigation.id}
                     nodes={graph.nodes}
                     connections={graph.connections}
                     roots={investigation.roots}
@@ -928,7 +966,10 @@ export default function Explorer() {
                     </table>
                     {!graph.connections.length && (
                       <div className="center-state">
-                        <p>No matching transfers in this range.</p>
+                        <p>
+                          No matching transfers on {activeNetwork.name} in this
+                          range.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -937,7 +978,7 @@ export default function Explorer() {
                   <span className="canvas-label">
                     {investigation.mode === "sample"
                       ? "ILLUSTRATIVE DATA"
-                      : "ETHEREUM MAINNET"}
+                      : `${activeNetwork.name.toUpperCase()}${activeNetwork.testnet ? " · TESTNET" : ""}`}
                   </span>
                   <span>
                     {graph.nodes.length} addresses
@@ -1028,7 +1069,7 @@ export default function Explorer() {
                     <p>
                       {partial
                         ? "History could not be fully loaded. Check the address panel and retry."
-                        : "No matching transfers in this range. Try a longer period or another asset."}
+                        : `No matching transfers on ${activeNetwork.name}. Check the network in your wallet, or try a different period or asset.`}
                     </p>
                   </div>
                 )}
@@ -1120,7 +1161,7 @@ export default function Explorer() {
                 <span>01</span>
                 <div>
                   <strong>Explore a wallet</strong>
-                  <p>Paste any Ethereum address.</p>
+                  <p>Paste a wallet address and select its network.</p>
                 </div>
               </div>
               <div className="panel-step">
@@ -1194,11 +1235,11 @@ export default function Explorer() {
                   {investigation.mode === "live" && (
                     <a
                       className="explorer-link"
-                      href={`https://etherscan.io/address/${selectedAddress}`}
+                      href={`${activeNetwork.explorer}/address/${selectedAddress}`}
                       target="_blank"
                       rel="noreferrer"
                     >
-                      View on Etherscan
+                      View on {activeNetwork.explorerName}
                       <ExternalLink size={12} />
                     </a>
                   )}
@@ -1523,9 +1564,9 @@ export default function Explorer() {
         {modal === "help" && (
           <div className="help-content">
             <p>
-              Paste an Ethereum address and choose a period. Click an address to
-              expand its neighborhood. Click an arrow to inspect the supporting
-              transfers.
+              Paste a wallet address and choose its network and period. The same
+              address can have different activity on each network. Click an
+              address to expand it, or an arrow to inspect the transfers.
             </p>
             <p>
               <strong>Coverage:</strong> external ETH transfers and ERC-20
@@ -1657,7 +1698,7 @@ function TransferRow({
           </span>
           {t.source === "alchemy" ? (
             <a
-              href={`https://etherscan.io/tx/${t.hash}`}
+              href={`${networks[t.chainId].explorer}/tx/${t.hash}`}
               target="_blank"
               rel="noreferrer"
               aria-label={`View transaction ${t.hash}`}

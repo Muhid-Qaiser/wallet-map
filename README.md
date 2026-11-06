@@ -1,6 +1,6 @@
 # Wallet Map
 
-Explore Ethereum wallet relationships through an interactive graph, then open the transfers behind each connection.
+Explore wallet relationships on Ethereum and Base through an interactive graph, then open the transfers behind each connection.
 
 Wallet Map supports live address searches, progressive expansion, token and date filters, two-wallet comparison, notes, local saves, JSON import/export, and CSV evidence exports. It reads public chain history through Alchemy. Users do not connect a wallet or sign transactions.
 
@@ -12,7 +12,7 @@ Use Node.js 24 and npm.
 npm ci
 ```
 
-Copy `.env.example` to `.env.local`. Set `ALCHEMY_API_KEY` to an Alchemy application key with Ethereum mainnet access. Generate `APP_SIGNING_SECRET` with:
+Copy `.env.example` to `.env.local`. Set `ALCHEMY_API_KEY` to an Alchemy application key with access to the networks you want to explore. Generate `APP_SIGNING_SECRET` with:
 
 ```sh
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -28,7 +28,7 @@ Open [localhost:3100](http://127.0.0.1:3100). An explicitly labeled sample inves
 
 ## Investigate a wallet
 
-1. Paste an Ethereum address. Choose a 7-, 30-, or 90-day period, or custom UTC dates up to 90 days apart. The custom end date is exclusive.
+1. Paste a wallet address and select the network used in your wallet: Ethereum Mainnet, Base Mainnet, Ethereum Sepolia, or Base Sepolia. Choose a 7-, 30-, or 90-day period, or custom UTC dates up to 90 days apart. The custom end date is exclusive.
 2. Choose ETH and tokens, ETH only, or a specific ERC-20 contract, then select **Explore wallet**.
 3. Select an address to expand its neighborhood. Select an arrow to inspect its transfers and transaction links. Table view provides the same selection actions through buttons.
 4. Use **Compare wallet** to load a second starting address at the same snapshot. Shared counterparties are calculated from loaded history, including counterparties hidden by the initial display limit.
@@ -36,11 +36,11 @@ Open [localhost:3100](http://127.0.0.1:3100). An explicitly labeled sample inves
 
 The graph initially reveals up to 20 counterparties per expanded address. **Reveal more loaded counterparties** changes what is visible without fetching more history. **Load older / retry** requests additional pages. Hiding a node changes presentation; it does not delete fetched evidence. Undo restores the previous graph action. Pinning preserves a node through collapse.
 
-Each investigation uses a fixed finalized block. All neighborhoods and balance reads use that snapshot. Start a new search to refresh it. Live query tokens expire after 24 hours; history continuation tokens expire after eight minutes. Restart an address to refetch at the same snapshot when its continuation expires.
+Each investigation uses a fixed finalized block on one network. The same address can have different history on different networks. All neighborhoods, balance reads, and explorer links use the selected network. Testnet investigations are labeled separately. Start a new search to refresh or switch networks. Live query tokens expire after 24 hours; history continuation tokens expire after eight minutes. Restart an address to refetch at the same snapshot when its continuation expires.
 
 ## Understand the coverage
 
-- The current release includes successful external ETH transfers and ERC-20 transfer events on Ethereum mainnet. External ETH transfers are checked against transaction receipts. Raw integer token amounts are retained and calculated with BigInt.
+- The current release includes successful external ETH transfers and ERC-20 transfer events on the four supported networks. External ETH transfers are checked against transaction receipts. Raw integer token amounts are retained and calculated with BigInt.
 - Internal ETH transfers, NFTs, approvals, zero-value calls, failed transactions, rewards, and cross-chain bridge tracing are excluded. A lack of matching transfers does not establish that an address has no other activity.
 - Every history request fetches up to 250 records in each direction. Per-address limits are 1,000 records per direction. An investigation holds up to 10,000 unique transfers; the canvas displays up to 100 addresses and 300 connections.
 - Partial history and direction failures are shown explicitly. Counts, rankings, comparisons, and totals describe loaded records. Different assets are never summed together. Unknown amounts remain unknown.
@@ -78,7 +78,7 @@ Import this personal repository into Vercel as a Next.js project. Set these serv
 
 | Variable                   | Purpose                                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `ALCHEMY_API_KEY`          | Ethereum mainnet provider access.                                                                    |
+| `ALCHEMY_API_KEY`          | Provider access for the networks you want to search.                                                 |
 | `APP_SIGNING_SECRET`       | Stable random secret for signed snapshot and continuation tokens.                                    |
 | `UPSTASH_REDIS_REST_URL`   | Shared cache and quota store URL.                                                                    |
 | `UPSTASH_REDIS_REST_TOKEN` | Shared store credential.                                                                             |

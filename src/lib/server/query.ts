@@ -7,12 +7,13 @@ import {
   type Address,
   type Neighborhood,
 } from "../domain";
+import { chainIdSchema } from "../networks";
 import { AppError, readToken, signToken } from "./infrastructure";
 import { transferPage } from "./alchemy";
 
 export const querySchema = z.object({
   kind: z.literal("query"),
-  chainId: z.literal(1),
+  chainId: chainIdSchema,
   fromBlock: z.number().int().nonnegative(),
   block: z.number().int().positive(),
   hash: hashSchema,
@@ -97,6 +98,7 @@ export async function neighborhood(
       };
     try {
       const page = await transferPage({
+        chainId: query.chainId,
         address,
         direction,
         fromBlock: query.fromBlock,

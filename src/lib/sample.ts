@@ -60,6 +60,7 @@ export const sampleTransfers: Transfer[] = pairs.flatMap(([f, t], i) => {
   const asset = i % 3 ? eth : token;
   return [
     {
+      chainId: 1,
       id: `1:sample:${i}`,
       hash: `0x${(i + 1).toString(16).padStart(64, "0")}`,
       block: 23800000 + i,

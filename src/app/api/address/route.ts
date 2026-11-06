@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     await guardRequest(request);
     const query = readQuery(body.queryToken);
     const raw = await cached(
-      `wm:balance:${body.address}:${query.hash}`,
+      `wm:balance:${query.chainId}:${body.address}:${query.hash}`,
       z.string(),
       async () =>
         BigInt(
@@ -28,6 +28,7 @@ export async function POST(request: Request) {
             "eth_getBalance",
             [body.address, `0x${query.block.toString(16)}`],
             z.string().regex(/^0x[0-9a-fA-F]+$/),
+            query.chainId,
           ),
         ).toString(),
     );

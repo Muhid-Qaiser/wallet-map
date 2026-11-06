@@ -143,6 +143,11 @@ describe("exploration and evidence", () => {
   });
 });
 describe("import and export boundaries", () => {
+  it("rejects saved transfers from a different network than the snapshot", () => {
+    const investigation = sampleInvestigation();
+    investigation.snapshot.chainId = 84532;
+    expect(investigationSchema.safeParse(investigation).success).toBe(false);
+  });
   it("preserves a capped direction while the other direction pages", () => {
     const i = sampleInvestigation();
     const n = i.neighborhoods[0];

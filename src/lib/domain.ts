@@ -1,5 +1,6 @@
 import { getAddress, isAddress } from "viem";
 import { z } from "zod";
+import { chainIdSchema, type ChainId } from "./networks";
 
 export const addressSchema = z
   .string()
@@ -19,6 +20,7 @@ export const assetSchema = z.object({
   decimals: z.number().int().min(0).max(255).nullable(),
 });
 export const transferSchema = z.object({
+  chainId: chainIdSchema.default(1),
   id: z.string().max(200),
   hash: hashSchema,
   block: z.number().int().nonnegative(),
@@ -32,7 +34,7 @@ export const transferSchema = z.object({
 });
 export type Transfer = z.infer<typeof transferSchema>;
 export const snapshotSchema = z.object({
-  chainId: z.literal(1),
+  chainId: chainIdSchema,
   block: z.number().int().positive(),
   hash: hashSchema,
   timestamp: z.string().datetime(),
@@ -105,6 +107,11 @@ export const investigationSchema = z
       });
     for (const n of value.neighborhoods)
       for (const t of n.transfers) {
+        if (t.chainId !== value.snapshot.chainId)
+          ctx.addIssue({
+            code: "custom",
+            message: "A transfer is on a different network from its snapshot.",
+          });
         if (t.from !== n.address && t.to !== n.address)
           ctx.addIssue({
             code: "custom",
@@ -136,8 +143,8 @@ export type Connection = {
 export function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
-export function addressId(address: string) {
-  return `1:${address.toLowerCase()}`;
+export function addressId(address: string, chainId: ChainId) {
+  return `${chainId}:${address.toLowerCase()}`;
 }
 export function allTransfers(investigation: Investigation): Transfer[] {
   return [
@@ -187,7 +194,7 @@ export function matchesTransfer(t: Transfer, filters: Filters, root: Address) {
 export function aggregate(transfers: Transfer[]): Connection[] {
   const connections = new Map<string, Connection>();
   for (const t of new Map(transfers.map((t) => [t.id, t])).values()) {
-    const id = `${addressId(t.from)}>${addressId(t.to)}`;
+    const id = `${addressId(t.from, t.chainId)}>${addressId(t.to, t.chainId)}`;
     const c = connections.get(id) ?? {
       id,
       from: t.from,
@@ -345,6 +352,7 @@ export function csvExport(transfers: Transfer[]) {
   const cell = (s: string) =>
     `"${(/^[=+\-@\t\r]/.test(s) ? `'${s}` : s).replaceAll('"', '""')}"`;
   const rows = transfers.map((t) => [
+    t.chainId.toString(),
     t.timestamp,
     t.from,
     t.to,
@@ -359,6 +367,7 @@ export function csvExport(transfers: Transfer[]) {
   ]);
   return [
     [
+      "chain_id",
       "timestamp_utc",
       "from",
       "to",
