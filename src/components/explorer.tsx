@@ -126,6 +126,64 @@ const date = (value: string) =>
 const assetName = (t: Transfer) =>
   `${t.asset.symbol}${t.asset.contract ? ` · ${shortAddress(t.asset.contract)}` : ""}`;
 
+function nextBranchAddresses(investigation: Investigation, nodes: Address[]) {
+  const loaded = new Set(
+    investigation.neighborhoods.map((page) => page.address),
+  );
+  return nodes
+    .filter((address) => !loaded.has(address) && !/^0x0{40}$/.test(address))
+    .slice(0, Math.min(4, Math.max(0, 100 - loaded.size)));
+}
+
+async function loadNeighborhood(
+  investigation: Investigation,
+  address: Address,
+  signal: AbortSignal,
+  after?: { incoming: string | null; outgoing: string | null },
+): Promise<Neighborhood> {
+  if (investigation.mode === "sample") return sampleNeighborhood(address);
+  return api(
+    "neighborhood",
+    { address, queryToken: investigation.snapshot.queryToken, after },
+    neighborhoodSchema,
+    signal,
+  );
+}
+
+async function loadBranches(
+  investigation: Investigation,
+  addresses: Address[],
+  signal: AbortSignal,
+) {
+  const results = await Promise.allSettled(
+    addresses.map((address) =>
+      loadNeighborhood(investigation, address, signal),
+    ),
+  );
+  let merged = investigation;
+  const expanded: Address[] = [];
+  const warnings = new Set<string>();
+  for (const result of results) {
+    if (result.status === "rejected") {
+      warnings.add(errorMessage(result.reason));
+      continue;
+    }
+    try {
+      merged = mergeNeighborhood(merged, result.value);
+    } catch (error) {
+      warnings.add(errorMessage(error));
+      break;
+    }
+    expanded.push(result.value.address);
+    for (const warning of result.value.warnings) warnings.add(warning);
+  }
+  return {
+    neighborhoods: merged.neighborhoods,
+    expanded,
+    warnings: [...warnings],
+  };
+}
+
 export default function Explorer() {
   const [investigation, setInvestigation] = useState<Investigation | null>(
     null,
@@ -144,6 +202,7 @@ export default function Explorer() {
   });
   const [selection, setSelection] = useState<Selection>(null);
   const [view, setView] = useState<"graph" | "table">("graph");
+  const [fullScreen, setFullScreen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{
     kind: "error" | "success";
@@ -165,6 +224,7 @@ export default function Explorer() {
   const generation = useRef(0);
   const importer = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const canvas = useRef<HTMLDivElement>(null);
   const notify = (text: string, kind: "error" | "success" = "success") =>
     setMessage({ text, kind });
   const activeNetwork =
@@ -176,6 +236,10 @@ export default function Explorer() {
     () => (investigation ? graphData(investigation, filters) : null),
     [investigation, filters],
   );
+  const branchAddresses =
+    investigation && graph
+      ? nextBranchAddresses(investigation, graph.nodes)
+      : [];
   const records = useMemo(
     () => (investigation ? allTransfers(investigation) : []),
     [investigation],
@@ -211,6 +275,42 @@ export default function Explorer() {
     else dialog.current?.close();
   }, [modal]);
   useEffect(() => () => abort.current?.abort(), []);
+  useEffect(() => {
+    if (!fullScreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    canvas.current
+      ?.querySelector<HTMLButtonElement>(".canvas-screen-button")
+      ?.focus();
+    const exit = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFullScreen(false);
+        setFit((value) => value + 1);
+      }
+      if (event.key === "Tab") {
+        const controls = Array.from(
+          canvas.current?.querySelectorAll<HTMLButtonElement>(
+            "button:not(:disabled)",
+          ) ?? [],
+        );
+        const index = controls.findIndex(
+          (control) => control === document.activeElement,
+        );
+        if (
+          index === -1 ||
+          (event.shiftKey ? index === 0 : index === controls.length - 1)
+        ) {
+          event.preventDefault();
+          (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", exit);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", exit);
+    };
+  }, [fullScreen]);
   const change = (
     update: (current: Investigation) => Investigation,
     remember = true,
@@ -237,6 +337,7 @@ export default function Explorer() {
     generation.current++;
     abort.current?.abort();
     setBusy(null);
+    setFullScreen(false);
     setInvestigation(next);
     setSelection(
       next.roots[0] ? { kind: "address", address: next.roots[0] } : null,
@@ -250,6 +351,65 @@ export default function Explorer() {
     setZoom(0);
     setBalance(null);
     setTransferLimit(40);
+  }
+  async function expandBranches(
+    current: Investigation,
+    addresses: Address[],
+    controller: AbortController,
+    currentGeneration: number,
+  ) {
+    if (!addresses.length) return;
+    setBusy("Loading connected wallets…");
+    const result = await loadBranches(current, addresses, controller.signal);
+    if (generation.current !== currentGeneration || controller.signal.aborted)
+      return;
+    if (result.expanded.length) {
+      setUndo((history) => [...history.slice(-14), current]);
+      setInvestigation((previous) =>
+        previous?.id === current.id
+          ? {
+              ...previous,
+              neighborhoods: result.neighborhoods,
+              expansions: [
+                ...previous.expansions.filter(
+                  (expansion) => !result.expanded.includes(expansion.address),
+                ),
+                ...result.expanded.map((address) => ({
+                  address,
+                  active: true,
+                  reveal: 20,
+                })),
+              ],
+            }
+          : previous,
+      );
+      setFit((value) => value + 1);
+    }
+    if (result.warnings.length) notify(result.warnings.join(" "), "error");
+  }
+
+  async function exploreNextHop() {
+    if (!investigation || busy || !branchAddresses.length) return;
+    if (investigation.mode === "live" && !investigation.snapshot.queryToken) {
+      return notify(
+        "Use Explore wallet to load more addresses from this saved snapshot.",
+        "error",
+      );
+    }
+    const currentGeneration = generation.current;
+    const controller = new AbortController();
+    abort.current = controller;
+    setMessage(null);
+    try {
+      await expandBranches(
+        investigation,
+        branchAddresses,
+        controller,
+        currentGeneration,
+      );
+    } finally {
+      if (generation.current === currentGeneration) setBusy(null);
+    }
   }
   async function search(event?: React.FormEvent) {
     event?.preventDefault();
@@ -373,6 +533,17 @@ export default function Explorer() {
       } else if (first.warnings.length) {
         notify(first.warnings.join(" "), "error");
       }
+      const initialGraph = graphData(next, {
+        asset: "all",
+        direction: "both",
+        minimum: "",
+      });
+      await expandBranches(
+        next,
+        nextBranchAddresses(next, initialGraph.nodes),
+        controller,
+        currentGeneration,
+      );
     } catch (error) {
       if (!controller.signal.aborted) notify(errorMessage(error), "error");
     } finally {
@@ -420,26 +591,17 @@ export default function Explorer() {
     setBusy(more ? "Loading older transfers…" : "Expanding address…");
     setMessage(null);
     try {
-      const next =
-        investigation.mode === "sample"
-          ? sampleNeighborhood(address)
-          : await api(
-              "neighborhood",
-              {
-                address,
-                queryToken: investigation.snapshot.queryToken,
-                ...(more && existing
-                  ? {
-                      after: {
-                        incoming: existing.incoming.cursor,
-                        outgoing: existing.outgoing.cursor,
-                      },
-                    }
-                  : {}),
-              },
-              neighborhoodSchema,
-              controller.signal,
-            );
+      const next = await loadNeighborhood(
+        investigation,
+        address,
+        controller.signal,
+        more && existing
+          ? {
+              incoming: existing.incoming.cursor,
+              outgoing: existing.outgoing.cursor,
+            }
+          : undefined,
+      );
       if (generation.current !== currentGeneration) return;
       const merged = mergeNeighborhood(investigation, next);
       setUndo((u) => [...u.slice(-14), investigation]);
@@ -461,6 +623,7 @@ export default function Explorer() {
       );
       setModal(null);
       setSelection({ kind: "address", address });
+      setFit((value) => value + 1);
       if (next.warnings.length) notify(next.warnings.join(" "), "error");
     } catch (error) {
       if (!controller.signal.aborted) notify(errorMessage(error), "error");
@@ -940,7 +1103,13 @@ export default function Explorer() {
               Compare wallet
             </button>
           </div>
-          <div className="canvas-area">
+          <div
+            ref={canvas}
+            role={fullScreen ? "dialog" : undefined}
+            aria-modal={fullScreen || undefined}
+            aria-label={fullScreen ? "Wallet graph" : undefined}
+            className={`canvas-area${fullScreen ? " canvas-full-screen" : ""}`}
+          >
             {investigation && graph ? (
               <>
                 {view === "graph" ? (
@@ -1046,6 +1215,37 @@ export default function Explorer() {
                   )}
                 </div>
                 {view === "graph" && (
+                  <div className="canvas-actions">
+                    <button
+                      className="button"
+                      disabled={
+                        !!busy ||
+                        !branchAddresses.length ||
+                        filters.direction !== "both"
+                      }
+                      onClick={() => void exploreNextHop()}
+                    >
+                      <GitBranch size={15} />
+                      Expand next hop
+                    </button>
+                    <button
+                      className="button canvas-screen-button"
+                      aria-label={
+                        fullScreen ? "Exit full screen" : "Open full screen"
+                      }
+                      title={
+                        fullScreen ? "Exit full screen" : "Open full screen"
+                      }
+                      onClick={() => {
+                        setFullScreen((value) => !value);
+                        setFit((value) => value + 1);
+                      }}
+                    >
+                      {fullScreen ? <X size={16} /> : <Maximize2 size={16} />}
+                    </button>
+                  </div>
+                )}
+                {view === "graph" && (
                   <div className="graph-controls">
                     <button
                       aria-label="Zoom in"
@@ -1110,10 +1310,11 @@ export default function Explorer() {
                     Undo
                   </button>
                 </div>
-                {graph.hiddenCount > 0 && (
+                {(graph.hiddenCount > 0 || graph.nodes.length === 100) && (
                   <div className="hidden-hint">
-                    Some loaded connections are hidden. Reveal more from an
-                    expanded address.
+                    {graph.nodes.length === 100
+                      ? "100-address display limit reached."
+                      : "Some loaded connections are hidden. Reveal more from an expanded address."}
                   </div>
                 )}
                 {records.length === 0 && !busy && view === "graph" && (
@@ -1621,6 +1822,11 @@ export default function Explorer() {
               Paste a wallet address and choose its network and period. The same
               address can have different activity on each network. Click an
               address to expand it, or an arrow to inspect the transfers.
+            </p>
+            <p>
+              Live searches preview up to four connected wallets. Use Expand
+              next hop to follow more branches, or open the graph in full
+              screen.
             </p>
             <p>
               <strong>Coverage:</strong> external ETH transfers and ERC-20

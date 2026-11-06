@@ -24,6 +24,36 @@ type Props = {
   onPosition: (address: string, position: { x: number; y: number }) => void;
 };
 
+function fitGraph(cy: Core) {
+  cy.resize();
+  cy.fit(undefined, Math.min(48, Math.min(cy.width(), cy.height()) * 0.09));
+}
+
+function placeNeighbor(
+  cy: Core,
+  center: { x: number; y: number },
+  angle: number,
+  distance: number,
+) {
+  const occupied = cy.nodes().map((node) => node.position());
+  const atDistance = (radius: number) => ({
+    x: center.x + Math.cos(angle) * radius,
+    y: center.y + Math.sin(angle) * radius,
+  });
+  let position = atDistance(distance);
+  const searchLimit = distance + occupied.length * 192;
+  while (
+    distance < searchLimit &&
+    occupied.some(
+      (other) => Math.hypot(position.x - other.x, position.y - other.y) < 84,
+    )
+  ) {
+    distance += 48;
+    position = atDistance(distance);
+  }
+  return position;
+}
+
 export default function Graph(props: Props) {
   const container = useRef<HTMLDivElement>(null);
   const core = useRef<Core | null>(null);
@@ -36,7 +66,7 @@ export default function Graph(props: Props) {
     const cy = cytoscape({
       container: container.current,
       elements: [],
-      minZoom: 0.18,
+      minZoom: 0.05,
       maxZoom: 2.5,
       selectionType: "single",
       style: [
@@ -112,7 +142,6 @@ export default function Graph(props: Props) {
             "z-index": 10,
           },
         },
-        { selector: ".faded", style: { opacity: 0.2 } },
       ],
     });
     cy.on("tap", "node", (event) => {
@@ -173,7 +202,9 @@ export default function Graph(props: Props) {
           const count = Math.max(1, props.nodes.length - 1),
             angle = ((i - 1) * 2 * Math.PI) / count - Math.PI / 2;
           const parent = props.connections.find(
-            (c) => c.to === address || c.from === address,
+            (c) =>
+              (c.to === address && cy.getElementById(c.from).length) ||
+              (c.from === address && cy.getElementById(c.to).length),
           );
           const parentId = parent
             ? parent.to === address
@@ -192,10 +223,7 @@ export default function Graph(props: Props) {
               props.positions[address] ??
               (rootIndex === 0
                 ? { x: 450, y: 320 }
-                : {
-                    x: center.x + Math.cos(angle) * (first ? 210 : 145),
-                    y: center.y + Math.sin(angle) * (first ? 210 : 145),
-                  }),
+                : placeNeighbor(cy, center, angle, first ? 210 : 145)),
           });
         }
       }
@@ -211,7 +239,6 @@ export default function Graph(props: Props) {
             },
           });
     });
-    if (first && props.nodes.length) cy.fit(undefined, 75);
   }, [
     props.nodes,
     props.connections,
@@ -223,17 +250,9 @@ export default function Graph(props: Props) {
   useEffect(() => {
     const cy = core.current;
     if (!cy) return;
-    cy.elements().removeClass("highlighted faded");
-    if (props.selected) {
-      const selected = cy.getElementById(props.selected);
-      if (selected.length) {
-        const neighborhood = selected
-          .closedNeighborhood()
-          .union(selected.connectedNodes());
-        cy.elements().difference(neighborhood).addClass("faded");
-        selected.addClass("highlighted");
-      }
-    }
+    cy.elements().removeClass("highlighted");
+    if (props.selected)
+      cy.getElementById(props.selected).addClass("highlighted");
   }, [props.selected, props.nodes, props.connections]);
   useEffect(() => {
     const cy = core.current;
@@ -255,19 +274,17 @@ export default function Graph(props: Props) {
   }, [props.layout]);
   useEffect(() => {
     const cy = core.current;
-    if (!cy) return;
-    if (props.zoom === 0) cy.fit(undefined, 65);
-    else
-      cy.zoom({
-        level: Math.min(
-          2.5,
-          Math.max(0.18, cy.zoom() * (props.zoom > 0 ? 1.2 : 1 / 1.2)),
-        ),
-        renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
-      });
+    if (!cy || props.zoom === 0) return;
+    cy.zoom({
+      level: Math.min(
+        cy.maxZoom(),
+        Math.max(cy.minZoom(), cy.zoom() * (props.zoom > 0 ? 1.2 : 1 / 1.2)),
+      ),
+      renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
+    });
   }, [props.zoom]);
   useEffect(() => {
-    core.current?.fit(undefined, 65);
+    if (core.current) fitGraph(core.current);
   }, [props.fit]);
   return (
     <div

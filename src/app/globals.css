@@ -342,6 +342,23 @@ kbd {
   position: absolute;
   inset: 0;
 }
+.canvas-area.canvas-full-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  min-height: 0;
+}
+.canvas-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+}
+.canvas-screen-button {
+  width: var(--control-height);
+  padding-inline: 0;
+}
 .canvas-info {
   position: absolute;
   top: 21px;
@@ -349,6 +366,7 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-width: calc(100% - 205px);
   pointer-events: none;
   font-size: 10px;
   color: #7e91aa;

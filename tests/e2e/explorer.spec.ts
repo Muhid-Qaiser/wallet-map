@@ -123,6 +123,34 @@ test("mobile layout and keyboard-accessible table", async ({ page }) => {
   });
 });
 
+test("expands indirect connections and fits the graph to full screen", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Open sample investigation", exact: true })
+    .click();
+  const graph = page.getByTestId("graph");
+  await expect(graph).toHaveAttribute("aria-label", /11 addresses/);
+  await page
+    .getByRole("button", { name: "Expand next hop", exact: true })
+    .click();
+  await expect(graph).not.toHaveAttribute("aria-label", /11 addresses/);
+  await page.getByRole("button", { name: "Open full screen" }).click();
+  const fullScreenBounds = await graph.boundingBox();
+  expect(fullScreenBounds?.width).toBe(page.viewportSize()?.width);
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Open full screen" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Table view" }).click();
+  await expect(
+    page.getByRole("button", {
+      name: /Inspect connection 0x3{40} to 0x[dD]{40}/,
+    }),
+  ).toBeVisible();
+});
+
 test("real wallet search returns evidence from the live API", async ({
   page,
 }) => {
@@ -148,7 +176,7 @@ test("real wallet search returns evidence from the live API", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Load balance", exact: true }).click();
   await expect(page.locator(".balance-text")).toBeVisible({ timeout: 15000 });
-  await expect(page.getByText(/History incomplete/)).toHaveCount(0);
+  await expect(page.locator(".history-status .warning-text")).toHaveCount(0);
   await page.screenshot({
     path: "test-results/wallet-map-live.png",
     fullPage: true,
