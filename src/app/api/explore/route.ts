@@ -46,7 +46,12 @@ export async function POST(request: Request) {
       const { incoming, outgoing } = result.value.first;
       if (incoming.status === "error" || outgoing.status === "error")
         incomplete.push(result.value.snapshot.chainId);
-      if (incoming.status === "error" && outgoing.status === "error") return [];
+      if (
+        incoming.status === "error" &&
+        outgoing.status === "error" &&
+        !result.value.first.transfers.length
+      )
+        return [];
       return [result.value];
     });
     const [winner] = candidates.sort(

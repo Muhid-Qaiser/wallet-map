@@ -42,7 +42,7 @@ Each investigation uses a fixed finalized block on one network. The same address
 
 - The current release includes successful external ETH transfers and ERC-20 transfer events on the four supported networks. External ETH transfers are checked against transaction receipts. Raw integer token amounts are retained and calculated with BigInt.
 - Internal ETH transfers, NFTs, approvals, zero-value calls, failed transactions, rewards, and cross-chain bridge tracing are excluded. A lack of matching transfers does not establish that an address has no other activity.
-- Every history request fetches up to 250 records in each direction. Per-address limits are 1,000 records per direction. An investigation holds up to 10,000 unique transfers; the canvas displays up to 100 addresses and 300 connections.
+- New searches fetch up to 50 records per direction per page. Existing continuation tokens keep their page size. Per-address limits are 1,000 records per direction. An investigation holds up to 10,000 unique transfers and displays up to 100 addresses and 300 connections.
 - Partial history and direction failures are shown explicitly. Counts, rankings, comparisons, and totals describe loaded records. Different assets are never summed together. Unknown amounts remain unknown.
 - Token symbols are unverified metadata. A reported token event does not prove that a user initiated it or that the token has economic value. A shared counterparty does not prove shared ownership. A graph path does not identify the path of particular funds.
 - The sample investigation contains fictional, illustrative records. It does not link them to real transaction evidence.

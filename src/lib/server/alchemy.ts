@@ -24,7 +24,7 @@ export async function transport(
   const key = process.env.ALCHEMY_API_KEY;
   if (!key)
     throw new AppError("Alchemy API key is missing.", 503, "CONFIGURATION");
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     await reserveUpstream(weight);
     let response: Response;
     try {
@@ -34,35 +34,44 @@ export async function transport(
           method: "POST",
           body: JSON.stringify(body),
           headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(5000),
           cache: "no-store",
         },
       );
     } catch {
-      if (attempt < 2) continue;
+      if (attempt === 0) continue;
       throw new AppError(
         `The ${networks[chainId].name} data provider did not respond. Try again.`,
       );
     }
-    if ((response.status === 429 || response.status >= 500) && attempt < 2) {
-      const wait = Number(response.headers.get("Retry-After") ?? "0");
-      if (wait > 2)
-        throw new AppError(
-          "The data provider is busy. Try again shortly.",
-          429,
-          "PROVIDER_LIMIT",
+    if ((response.status === 429 || response.status >= 500) && attempt === 0) {
+      const retryAfter = response.headers.get("Retry-After") ?? "0";
+      const seconds = Number(retryAfter);
+      const wait = Number.isFinite(seconds)
+        ? seconds * 1000
+        : Date.parse(retryAfter) - Date.now();
+      if (wait <= 1500) {
+        const backoff =
+          response.status === 429 ? 1000 + Math.random() * 250 : 250;
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.max(wait, backoff)),
         );
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.max(wait * 1000, 250 * 2 ** attempt)),
+        continue;
+      }
+    }
+    if (response.status === 429) {
+      throw new AppError(
+        `Alchemy is rate limiting ${networks[chainId].name}. Retry in a moment.`,
+        429,
+        "PROVIDER_LIMIT",
       );
-      continue;
     }
     if (!response.ok)
       throw new AppError(
         response.status === 401 || response.status === 403
           ? `The Alchemy key was rejected. Check ${networks[chainId].name} access in your provider dashboard.`
-          : `The ${networks[chainId].name} data provider returned an error.`,
-        response.status === 429 ? 429 : 502,
+          : `Alchemy returned HTTP ${response.status} on ${networks[chainId].name}. Retry this address in a moment.`,
+        502,
       );
     try {
       return await response.json();
@@ -81,6 +90,13 @@ export async function rpc<T>(
   const parsed = envelope.parse(
     await transport({ jsonrpc: "2.0", id: 1, method, params }, 1, chainId),
   );
+  if (parsed.error?.code === 429) {
+    throw new AppError(
+      `Alchemy is rate limiting ${networks[chainId].name}. Retry in a moment.`,
+      429,
+      "PROVIDER_LIMIT",
+    );
+  }
   if (parsed.error)
     throw new AppError(
       "The provider could not serve this query. Check your key, network access, and request limits.",
@@ -104,13 +120,44 @@ export async function firstBlockAt(
   timestamp: number,
   upper: number,
   chainId: ChainId,
+  upperTimestamp: number,
 ): Promise<number> {
   let low = 0,
     high = upper;
+  let anchorBlock = upper;
+  let anchorTime = upperTimestamp;
+  let blockSeconds = chainId === 8453 || chainId === 84532 ? 2 : 12;
+  const blockTime = async (number: number) =>
+    Number(
+      BigInt((await getBlock(`0x${number.toString(16)}`, chainId)).timestamp),
+    );
+
+  // Use cadence to guess a nearby block. Check actual timestamps to certify the boundary.
+  for (let attempt = 0; attempt < 3 && low < high; attempt++) {
+    const guess = Math.max(
+      low,
+      Math.min(
+        high - 1,
+        anchorBlock + Math.ceil((timestamp - anchorTime) / blockSeconds),
+      ),
+    );
+    const [time, previous] = await Promise.all([
+      blockTime(guess),
+      guess > low ? blockTime(guess - 1) : Promise.resolve(-Infinity),
+    ]);
+    if (previous < timestamp && time >= timestamp) return guess;
+    if (time < timestamp) low = guess + 1;
+    else high = guess - 1;
+
+    const observedStep = (time - anchorTime) / (guess - anchorBlock);
+    if (Number.isFinite(observedStep) && observedStep > 0)
+      blockSeconds = observedStep;
+    anchorBlock = guess;
+    anchorTime = time;
+  }
   while (low < high) {
     const mid = Math.floor((low + high) / 2);
-    const block = await getBlock(`0x${mid.toString(16)}`, chainId);
-    if (Number(BigInt(block.timestamp)) < timestamp) low = mid + 1;
+    if ((await blockTime(mid)) < timestamp) low = mid + 1;
     else high = mid;
   }
   return low;
@@ -131,7 +178,7 @@ const providerTransferSchema = z.object({
   metadata: z.object({ blockTimestamp: z.string().datetime() }),
 });
 const providerPageSchema = z.object({
-  transfers: z.array(providerTransferSchema).max(250),
+  transfers: z.array(z.unknown()).max(250),
   pageKey: z.string().max(1000).optional(),
 });
 export function normalizeTransfer(
@@ -177,49 +224,54 @@ const receiptSchema = z.object({
   transactionHash: hashSchema,
   status: z.enum(["0x0", "0x1"]),
 });
-async function successfulExternal(
-  hashes: string[],
-  chainId: ChainId,
-): Promise<Set<string>> {
+async function successfulExternal(hashes: string[], chainId: ChainId) {
   const successful = new Set<string>();
   for (let offset = 0; offset < hashes.length; offset += 50) {
     const group = hashes.slice(offset, offset + 50);
-    const receipts = await cached(
-      `wm:receipts:${chainId}:${createHash("sha256").update(group.join(",")).digest("hex")}`,
-      z.array(receiptSchema),
-      async () => {
-        const response = z.array(envelope).parse(
-          await transport(
-            group.map((hash, id) => ({
-              jsonrpc: "2.0",
-              id,
-              method: "eth_getTransactionReceipt",
-              params: [hash],
-            })),
-            group.length,
-            chainId,
-          ),
-        );
-        const parsed = response.map((r) => receiptSchema.parse(r.result));
-        const returned = new Set(
-          parsed.map((r) => r.transactionHash.toLowerCase()),
-        );
-        if (
-          returned.size !== group.length ||
-          group.some((hash) => !returned.has(hash.toLowerCase()))
-        ) {
-          throw new AppError(
-            "Receipt verification was incomplete. Retry this address history.",
+    try {
+      const receipts = await cached(
+        `wm:receipts:${chainId}:${createHash("sha256").update(group.join(",")).digest("hex")}`,
+        z.array(receiptSchema),
+        async () => {
+          const response = z.array(envelope).parse(
+            await transport(
+              group.map((hash, id) => ({
+                jsonrpc: "2.0",
+                id,
+                method: "eth_getTransactionReceipt",
+                params: [hash],
+              })),
+              group.length,
+              chainId,
+            ),
           );
-        }
-        return parsed;
-      },
-    );
-    for (const receipt of receipts)
-      if (receipt.status === "0x1")
-        successful.add(receipt.transactionHash.toLowerCase());
+          const parsed = response.map((r) => receiptSchema.parse(r.result));
+          const returned = new Set(
+            parsed.map((r) => r.transactionHash.toLowerCase()),
+          );
+          if (
+            returned.size !== group.length ||
+            group.some((hash) => !returned.has(hash.toLowerCase()))
+          ) {
+            throw new AppError(
+              "Receipt verification was incomplete. Retry this address history.",
+            );
+          }
+          return parsed;
+        },
+      );
+      for (const receipt of receipts)
+        if (receipt.status === "0x1")
+          successful.add(receipt.transactionHash.toLowerCase());
+    } catch (error) {
+      const detail = error instanceof AppError ? ` ${error.message}` : "";
+      return {
+        successful,
+        verificationWarning: `Some ETH transfers still need receipt verification.${detail}`,
+      };
+    }
   }
-  return successful;
+  return { successful, verificationWarning: null };
 }
 export async function transferPage(params: {
   chainId: ChainId;
@@ -272,21 +324,44 @@ export async function transferPage(params: {
       rpc("alchemy_getAssetTransfers", [request], providerPageSchema, chainId),
     480,
   );
+  let unreadable = 0;
   const transfers = raw.transfers.flatMap((t) => {
-    const n = normalizeTransfer(t, chainId);
-    return n ? [n] : [];
+    const parsed = providerTransferSchema.safeParse(t);
+    if (!parsed.success) {
+      unreadable++;
+      return [];
+    }
+    try {
+      const transfer = normalizeTransfer(parsed.data, chainId);
+      return transfer ? [transfer] : [];
+    } catch {
+      unreadable++;
+      return [];
+    }
   });
   const external = [
     ...new Set(
       transfers.filter((t) => t.category === "external").map((t) => t.hash),
     ),
   ];
-  const verified = await successfulExternal(external, chainId);
+  const { successful, verificationWarning } = await successfulExternal(
+    external,
+    chainId,
+  );
   return {
     transfers: transfers.filter(
-      (t) => t.category !== "external" || verified.has(t.hash.toLowerCase()),
+      (t) => t.category !== "external" || successful.has(t.hash.toLowerCase()),
     ),
     pageKey: raw.pageKey || null,
     fetched: raw.transfers.length,
+    warning:
+      [
+        unreadable
+          ? `Some ${networks[chainId].name} transfer records could not be read.`
+          : null,
+        verificationWarning,
+      ]
+        .filter(Boolean)
+        .join(" ") || null,
   };
 }

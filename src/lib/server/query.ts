@@ -37,12 +37,14 @@ const cursorSchema = z.object({
   direction: z.enum(["incoming", "outgoing"]),
   pageKey: z.string().nullable(),
   count: z.number().int().min(0).max(1000),
+  pageSize: z.number().int().min(1).max(250).default(250),
   expires: z.number(),
 });
 export async function neighborhood(
   address: Address,
   queryToken: string,
   after?: { incoming: string | null; outgoing: string | null },
+  initialPageSize: 20 | 50 = 50,
 ): Promise<Neighborhood> {
   const query = readQuery(queryToken);
   const digest = createHash("sha256").update(queryToken).digest("hex");
@@ -67,6 +69,7 @@ export async function neighborhood(
           direction,
           pageKey: null,
           count: 0,
+          pageSize: initialPageSize,
           expires: Date.now() + 540000,
         } satisfies z.infer<typeof cursorSchema>);
     if (
@@ -105,9 +108,20 @@ export async function neighborhood(
         toBlock: query.block,
         asset: query.asset,
         pageKey: previous.pageKey,
-        maxCount: Math.min(250, 1000 - previous.count),
+        maxCount: Math.min(previous.pageSize, 1000 - previous.count),
         snapshotHash: query.hash,
       });
+      if (page.warning) {
+        return {
+          transfers: page.transfers,
+          state: {
+            status: "error",
+            cursor: signToken(previous),
+            count: previous.count,
+            message: page.warning,
+          } satisfies Neighborhood["incoming"],
+        };
+      }
       const count = previous.count + page.fetched;
       const next = page.pageKey
         ? signToken({

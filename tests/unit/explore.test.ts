@@ -56,7 +56,12 @@ it("chooses more connected addresses even when the preferred network has more tr
             ? distinct.slice(0, 2)
             : [];
     const transfers = records.map((record) => ({ ...record, chainId }));
-    return { transfers, pageKey: null, fetched: transfers.length };
+    return {
+      transfers,
+      pageKey: null,
+      fetched: transfers.length,
+      warning: null,
+    };
   });
   const response = await search();
   expect(response.status).toBe(200);
@@ -70,7 +75,7 @@ it("chooses more connected addresses even when the preferred network has more tr
 it("returns available results and identifies a network that could not be checked", async () => {
   vi.mocked(transferPage).mockImplementation(async ({ chainId }) => {
     if (chainId === 8453) throw new Error("Unavailable");
-    return { transfers: [], pageKey: null, fetched: 0 };
+    return { transfers: [], pageKey: null, fetched: 0, warning: null };
   });
   const response = await search();
   expect(response.status).toBe(200);

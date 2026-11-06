@@ -139,49 +139,18 @@ async function loadNeighborhood(
   investigation: Investigation,
   address: Address,
   signal: AbortSignal,
-  after?: { incoming: string | null; outgoing: string | null },
+  options?: {
+    after?: { incoming: string | null; outgoing: string | null };
+    preview?: boolean;
+  },
 ): Promise<Neighborhood> {
   if (investigation.mode === "sample") return sampleNeighborhood(address);
   return api(
     "neighborhood",
-    { address, queryToken: investigation.snapshot.queryToken, after },
+    { address, queryToken: investigation.snapshot.queryToken, ...options },
     neighborhoodSchema,
     signal,
   );
-}
-
-async function loadBranches(
-  investigation: Investigation,
-  addresses: Address[],
-  signal: AbortSignal,
-) {
-  const results = await Promise.allSettled(
-    addresses.map((address) =>
-      loadNeighborhood(investigation, address, signal),
-    ),
-  );
-  let merged = investigation;
-  const expanded: Address[] = [];
-  const warnings = new Set<string>();
-  for (const result of results) {
-    if (result.status === "rejected") {
-      warnings.add(errorMessage(result.reason));
-      continue;
-    }
-    try {
-      merged = mergeNeighborhood(merged, result.value);
-    } catch (error) {
-      warnings.add(errorMessage(error));
-      break;
-    }
-    expanded.push(result.value.address);
-    for (const warning of result.value.warnings) warnings.add(warning);
-  }
-  return {
-    neighborhoods: merged.neighborhoods,
-    expanded,
-    warnings: [...warnings],
-  };
 }
 
 export default function Explorer() {
@@ -250,6 +219,9 @@ export default function Explorer() {
   );
   const selectedAddress =
     selection?.kind === "address" ? selection.address : null;
+  const selectedDepth = selectedAddress
+    ? graph?.depths.get(selectedAddress)
+    : undefined;
   const selectedConnection =
     selection?.kind === "connection"
       ? (graph?.connections.find((c) => c.id === selection.id) ??
@@ -360,32 +332,56 @@ export default function Explorer() {
   ) {
     if (!addresses.length) return;
     setBusy("Loading connected wallets…");
-    const result = await loadBranches(current, addresses, controller.signal);
-    if (generation.current !== currentGeneration || controller.signal.aborted)
-      return;
-    if (result.expanded.length) {
-      setUndo((history) => [...history.slice(-14), current]);
-      setInvestigation((previous) =>
-        previous?.id === current.id
-          ? {
-              ...previous,
-              neighborhoods: result.neighborhoods,
-              expansions: [
-                ...previous.expansions.filter(
-                  (expansion) => !result.expanded.includes(expansion.address),
-                ),
-                ...result.expanded.map((address) => ({
-                  address,
-                  active: true,
-                  reveal: 20,
-                })),
-              ],
-            }
-          : previous,
-      );
-      setFit((value) => value + 1);
+    let merged = current;
+    let addedBranch = false;
+    const warnings = new Set<string>();
+    await Promise.all(
+      addresses.map(async (address) => {
+        try {
+          const page = await loadNeighborhood(
+            current,
+            address,
+            controller.signal,
+            { preview: true },
+          );
+          if (
+            generation.current !== currentGeneration ||
+            controller.signal.aborted
+          )
+            return;
+          merged = mergeNeighborhood(merged, page);
+          const neighborhoods = merged.neighborhoods;
+          if (!addedBranch)
+            setUndo((history) => [...history.slice(-14), current]);
+          addedBranch = true;
+          setInvestigation((previous) =>
+            previous?.id === current.id
+              ? {
+                  ...previous,
+                  neighborhoods,
+                  expansions: [
+                    ...previous.expansions.filter(
+                      (expansion) => expansion.address !== address,
+                    ),
+                    { address, active: true, reveal: 20 },
+                  ],
+                }
+              : previous,
+          );
+          setFit((value) => value + 1);
+          for (const warning of page.warnings) warnings.add(warning);
+        } catch (error) {
+          warnings.add(errorMessage(error));
+        }
+      }),
+    );
+    if (
+      warnings.size &&
+      generation.current === currentGeneration &&
+      !controller.signal.aborted
+    ) {
+      notify([...warnings].join(" "), "error");
     }
-    if (result.warnings.length) notify(result.warnings.join(" "), "error");
   }
 
   async function exploreNextHop() {
@@ -597,8 +593,10 @@ export default function Explorer() {
         controller.signal,
         more && existing
           ? {
-              incoming: existing.incoming.cursor,
-              outgoing: existing.outgoing.cursor,
+              after: {
+                incoming: existing.incoming.cursor,
+                outgoing: existing.outgoing.cursor,
+              },
             }
           : undefined,
       );
@@ -1117,6 +1115,7 @@ export default function Explorer() {
                     key={investigation.id}
                     nodes={graph.nodes}
                     connections={graph.connections}
+                    depths={graph.depths}
                     roots={investigation.roots}
                     pinned={investigation.pinned}
                     shared={graph.shared}
@@ -1213,6 +1212,11 @@ export default function Explorer() {
                       {graph.shared.size} shared counterparties
                     </span>
                   )}
+                  {view === "graph" && (
+                    <span className="direction-hint">
+                      Arrows point from sender to recipient
+                    </span>
+                  )}
                 </div>
                 {view === "graph" && (
                   <div className="canvas-actions">
@@ -1282,7 +1286,11 @@ export default function Explorer() {
                     </span>
                     <span>
                       <i className="address-dot" />
-                      Counterparty
+                      Direct
+                    </span>
+                    <span>
+                      <i className="branch-dot" />
+                      Indirect
                     </span>
                     {investigation.roots.length > 1 && (
                       <span>
@@ -1369,7 +1377,10 @@ export default function Explorer() {
               </div>
             )}
             {busy && (
-              <div className="loading-indicator" role="status">
+              <div
+                className={`loading-indicator${busy === "Loading connected wallets…" ? " branch-loading" : ""}`}
+                role="status"
+              >
                 <LoaderCircle size={16} className="spin" />
                 {busy}
               </div>
@@ -1459,7 +1470,11 @@ export default function Explorer() {
                   <div className="detail-eyebrow">
                     {investigation.roots.includes(selectedAddress)
                       ? "STARTING ADDRESS"
-                      : "COUNTERPARTY"}
+                      : selectedDepth === undefined
+                        ? "COUNTERPARTY"
+                        : selectedDepth === 1
+                          ? "DIRECT CONNECTION"
+                          : `${selectedDepth} HOPS FROM A STARTING WALLET`}
                     {graph?.shared.has(selectedAddress) && (
                       <span className="shared-tag">SHARED</span>
                     )}

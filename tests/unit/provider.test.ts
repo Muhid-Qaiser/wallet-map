@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-import { transferPage } from "../../src/lib/server/alchemy";
+import { firstBlockAt, transferPage } from "../../src/lib/server/alchemy";
 import {
   AppError,
   readToken,
@@ -14,6 +14,93 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe("provider and token boundaries", () => {
+  it("finds the exact date boundary without scanning from genesis", async () => {
+    vi.stubEnv("ALCHEMY_API_KEY", "test-key");
+    const timestamp = (block: number) =>
+      1700000000 + block * 12 + Math.floor(block / 73) * 12;
+    const fetch = vi
+      .fn<(url: string, request: { body: string }) => Promise<Response>>()
+      .mockImplementation(async (_url, request) => {
+        const {
+          params: [number],
+        } = JSON.parse(request.body);
+        return Response.json({
+          result: {
+            number,
+            hash: `0x${"b".repeat(64)}`,
+            timestamp: `0x${timestamp(Number(number)).toString(16)}`,
+          },
+        });
+      });
+    vi.stubGlobal("fetch", fetch);
+    const boundary = 25689001;
+    const tip = 25722500;
+    expect(
+      await firstBlockAt(timestamp(boundary) - 1, tip, 1, timestamp(tip)),
+    ).toBe(boundary);
+    expect(fetch.mock.calls.length).toBeLessThan(10);
+  });
+
+  it("keeps ERC-20 evidence when ETH receipt verification is rate limited", async () => {
+    vi.stubEnv("ALCHEMY_API_KEY", "test-key");
+    const from = addressSchema.parse(`0x${"1".repeat(40)}`);
+    const to = addressSchema.parse(`0x${"2".repeat(40)}`);
+    const hash = `0x${"c".repeat(64)}`;
+    const record = {
+      from,
+      to,
+      hash,
+      blockNum: "0x1234",
+      metadata: { blockTimestamp: "2026-11-01T00:00:00.000Z" },
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          result: {
+            transfers: [
+              {
+                ...record,
+                uniqueId: `${hash}:external`,
+                category: "external",
+                asset: "ETH",
+                rawContract: { value: "0x1", address: null, decimal: "0x12" },
+              },
+              {
+                ...record,
+                uniqueId: `${hash}:log:1`,
+                category: "erc20",
+                asset: "USDC",
+                rawContract: {
+                  value: "0x1312d00",
+                  address: to,
+                  decimal: "0x6",
+                },
+              },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 429, headers: { "Retry-After": "10" } }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    const page = await transferPage({
+      chainId: 1,
+      address: from,
+      direction: "outgoing",
+      fromBlock: 4000,
+      toBlock: 5000,
+      asset: "all",
+      pageKey: null,
+      maxCount: 50,
+      snapshotHash: hash,
+    });
+    expect(page.transfers.map((transfer) => transfer.asset.symbol)).toEqual([
+      "USDC",
+    ]);
+    expect(page.warning).toContain("Alchemy is rate limiting Ethereum Mainnet");
+  });
   it("removes failed external ETH transfers before building graph evidence", async () => {
     vi.stubEnv("ALCHEMY_API_KEY", "test-key");
     const hash = `0x${"a".repeat(64)}`;

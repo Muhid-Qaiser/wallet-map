@@ -12,6 +12,7 @@ export const maxDuration = 60;
 const input = z.object({
   address: addressSchema,
   queryToken: z.string().max(4000),
+  preview: z.boolean().optional(),
   after: z
     .object({
       incoming: z.string().max(6000).nullable(),
@@ -24,7 +25,12 @@ export async function POST(request: Request) {
     const body = input.parse(await requestJson(request));
     await guardRequest(request);
     return Response.json(
-      await neighborhood(body.address, body.queryToken, body.after),
+      await neighborhood(
+        body.address,
+        body.queryToken,
+        body.after,
+        body.preview ? 20 : 50,
+      ),
     );
   } catch (error) {
     return errorResponse(error);

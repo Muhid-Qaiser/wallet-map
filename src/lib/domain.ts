@@ -253,12 +253,37 @@ export function counterparties(transfers: Transfer[], address: Address) {
     )
     .map(([address]) => address);
 }
+
+function graphDepths(roots: Address[], connections: Connection[]) {
+  const adjacent = new Map<Address, Address[]>();
+  for (const { from, to } of connections) {
+    const fromNeighbors = adjacent.get(from) ?? [];
+    const toNeighbors = adjacent.get(to) ?? [];
+    fromNeighbors.push(to);
+    toNeighbors.push(from);
+    adjacent.set(from, fromNeighbors);
+    adjacent.set(to, toNeighbors);
+  }
+  const depths = new Map(roots.map((root) => [root, 0]));
+  const queue = [...roots];
+  for (const address of queue) {
+    const depth = depths.get(address) ?? 0;
+    for (const neighbor of adjacent.get(address) ?? []) {
+      if (depths.has(neighbor)) continue;
+      depths.set(neighbor, depth + 1);
+      queue.push(neighbor);
+    }
+  }
+  return depths;
+}
+
 export function graphData(investigation: Investigation, filters: Filters) {
   const root = investigation.roots[0];
   if (!root)
     return {
       nodes: [],
       connections: [],
+      depths: new Map<Address, number>(),
       hiddenCount: 0,
       shared: new Set<Address>(),
       transfers: [],
@@ -303,9 +328,11 @@ export function graphData(investigation: Investigation, filters: Filters) {
         )
       : [],
   );
+  const visibleConnections = connections.slice(0, 300);
   return {
     nodes: [...nodes].slice(0, 100),
-    connections: connections.slice(0, 300),
+    connections: visibleConnections,
+    depths: graphDepths(investigation.roots, visibleConnections),
     hiddenCount: hiddenCount + Math.max(0, connections.length - 300),
     shared,
     transfers,

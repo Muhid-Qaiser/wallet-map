@@ -48,10 +48,20 @@ export async function createSnapshot(
     );
   }
   const [fromBlock, endBoundary] = await Promise.all([
-    firstBlockAt(Math.ceil(start / 1000), finalizedNumber, chainId),
+    firstBlockAt(
+      Math.ceil(start / 1000),
+      finalizedNumber,
+      chainId,
+      finalizedTime / 1000,
+    ),
     end > finalizedTime
       ? Promise.resolve(finalizedNumber + 1)
-      : firstBlockAt(Math.ceil(end / 1000), finalizedNumber, chainId),
+      : firstBlockAt(
+          Math.ceil(end / 1000),
+          finalizedNumber,
+          chainId,
+          finalizedTime / 1000,
+        ),
   ]);
   const blockNumber = endBoundary - 1;
   if (blockNumber < fromBlock) {
