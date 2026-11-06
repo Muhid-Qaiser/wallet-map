@@ -86,7 +86,6 @@ const errorSchema = z.object({ error: z.string() });
 const autoResultSchema = z.object({
   snapshot: snapshotSchema,
   first: neighborhoodSchema,
-  connections: z.number().int().nonnegative(),
   incomplete: z.array(chainIdSchema),
 });
 async function api<T>(
@@ -513,19 +512,15 @@ export default function Explorer() {
       setBalance(null);
       setTransferLimit(40);
       if (autoResult) {
-        const summary = first.transfers.length
-          ? `Auto selected ${networks[snapshot.chainId].name} with ${autoResult.connections} connected addresses in the first pages.`
-          : "Auto found no matching transfers in the pages checked.";
         const warnings = [...first.warnings];
         if (autoResult.incomplete.length) {
           warnings.push(
             `Could not fully check ${autoResult.incomplete.map((id) => networks[id].name).join(", ")}.`,
           );
         }
-        notify(
-          [summary, ...warnings].join(" "),
-          warnings.length ? "error" : "success",
-        );
+        if (warnings.length) notify(warnings.join(" "), "error");
+        else if (!first.transfers.length)
+          notify("Auto found no matching transfers in the pages checked.");
       } else if (first.warnings.length) {
         notify(first.warnings.join(" "), "error");
       }
