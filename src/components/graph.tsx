@@ -23,20 +23,20 @@ type Props = {
 
 function fitGraph(cy: Core, fullScreen: boolean) {
   cy.resize();
-  if (!isPortrait(cy) || !cy.nodes().length) {
-    cy.fit(undefined, Math.min(48, Math.min(cy.width(), cy.height()) * 0.09));
-    return;
-  }
+  if (!cy.nodes().length) return;
   const bounds = cy.elements().boundingBox();
   const width = cy.width();
   const height = cy.height();
-  const top = width <= 335 ? 122 : 76;
-  const bottom = fullScreen ? 110 : 66;
+  const portrait = isPortrait(cy);
+  const padding = Math.min(48, Math.min(width, height) * 0.09);
+  const sides = portrait ? 18 : padding;
+  const top = portrait ? (width <= 335 ? 122 : 76) : padding;
+  const bottom = portrait ? (fullScreen ? 110 : 66) : padding;
   const zoom = Math.max(
     cy.minZoom(),
     Math.min(
-      cy.maxZoom(),
-      (width - 36) / bounds.w,
+      1,
+      (width - 2 * sides) / bounds.w,
       (height - top - bottom) / bounds.h,
     ),
   );
@@ -130,8 +130,10 @@ function radialPositions({
           (ring[index + 1]?.angle ?? first.angle + turn) - angle,
       ),
     );
-    const spacingRadius = ring.length > 1 ? 92 / (2 * Math.sin(gap / 2)) : 0;
-    radius = Math.max(depth === 0 ? 0 : radius + 114, spacingRadius);
+    const spacing = depth === 0 ? 92 : 82;
+    const spacingRadius =
+      ring.length > 1 ? spacing / (2 * Math.sin(gap / 2)) : 0;
+    radius = Math.max(depth === 0 ? 0 : radius + 80, spacingRadius);
     for (const { address, angle } of ring) {
       positions.set(address, {
         x: radius * Math.cos(angle),
