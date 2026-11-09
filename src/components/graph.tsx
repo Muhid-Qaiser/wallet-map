@@ -4,6 +4,8 @@ import cytoscape, { type Core } from "cytoscape";
 import { useEffect, useRef } from "react";
 import { shortAddress, type Address, type Connection } from "@/lib/domain";
 
+type Point = { x: number; y: number };
+
 type Props = {
   nodes: Address[];
   connections: Connection[];
@@ -12,13 +14,13 @@ type Props = {
   roots: Address[];
   pinned: Address[];
   shared: Set<Address>;
-  positions: Record<string, { x: number; y: number }>;
+  positions: Record<string, Point>;
   selected: string | null;
   zoom: number;
   fit: number;
   fullScreen: boolean;
   onSelect: (kind: "address" | "connection", id: string) => void;
-  onPosition: (address: string, position: { x: number; y: number }) => void;
+  onPosition: (address: string, position: Point) => void;
 };
 
 function fitGraph(cy: Core, fullScreen: boolean) {
@@ -53,6 +55,43 @@ function isPortrait(cy: Core) {
   return cy.width() < 580;
 }
 
+const branchAngles = [
+  0,
+  ...Array.from({ length: 10 }, (_, index) => {
+    const angle = ((index + 1) * Math.PI) / 24;
+    return [-angle, angle];
+  }).flat(),
+];
+
+function nearbyPosition(origin: Point, placed: Point[]): Point {
+  const outward = Math.atan2(origin.y, origin.x);
+  let nearest: { point: Point; distance: number } | undefined;
+  for (let distance = 62; ; distance += 12) {
+    for (const offset of branchAngles) {
+      const dx = distance * Math.cos(outward + offset);
+      const dy = distance * Math.sin(outward + offset);
+      const point = { x: origin.x + dx, y: origin.y + dy };
+      const overlaps = placed.some(
+        (other) =>
+          Math.hypot((point.x - other.x) / 78, (point.y - other.y) / 62) < 1,
+      );
+      if (overlaps) continue;
+
+      nearest ??= { point, distance };
+      const blocked = placed.some((other) => {
+        const x = other.x - origin.x;
+        const y = other.y - origin.y;
+        const along = (x * dx + y * dy) / distance;
+        const across = Math.abs(x * dy - y * dx) / distance;
+        return along > 0 && along < distance && across < 23;
+      });
+      if (!blocked) return point;
+    }
+    // Prefer a short edge when every nearby route passes behind a node.
+    if (nearest && distance >= nearest.distance + 36) return nearest.point;
+  }
+}
+
 function radialPositions({
   nodes,
   depths,
@@ -65,13 +104,6 @@ function radialPositions({
     children.set(parent, branch);
   }
   const turn = 2 * Math.PI;
-  const weights = new Map<Address, number>();
-  function weigh(address: Address): number {
-    const branch = children.get(address) ?? [];
-    const weight = branch.reduce((sum, child) => sum + weigh(child), 0) || 1;
-    weights.set(address, weight);
-    return weight;
-  }
 
   const rings = new Map<number, { address: Address; angle: number }[]>();
   function addToRing(depth: number, address: Address, angle: number) {
@@ -79,46 +111,30 @@ function radialPositions({
     ring.push({ address, angle });
     rings.set(depth, ring);
   }
-  function placeBranches(
+  function placeRing(
     branch: Address[],
     depth: number,
     start: number,
     span: number,
   ) {
-    const total = branch.reduce(
-      (sum, address) => sum + (weights.get(address) ?? 1),
-      0,
-    );
-    for (const address of branch) {
-      const sector = (span * (weights.get(address) ?? 1)) / total;
+    const weights = branch.map((address) => ({
+      address,
+      weight: depth === 0 ? Math.max(1, children.get(address)?.length ?? 0) : 1,
+    }));
+    const total = weights.reduce((sum, { weight }) => sum + weight, 0);
+    for (const { address, weight } of weights) {
+      const sector = (span * weight) / total;
       const angle = start + sector / 2;
       addToRing(depth, address, angle);
-      // Keep a branch's children facing outward, even when it has the ring to itself.
-      const childSpan = depth === 0 ? sector : Math.min(sector, Math.PI * 0.85);
-      placeBranches(
-        children.get(address) ?? [],
-        depth + 1,
-        angle - childSpan / 2,
-        childSpan,
-      );
+      if (depth === 0) placeRing(children.get(address) ?? [], 1, start, sector);
       start += sector;
     }
   }
 
   const roots = nodes.filter((address) => depths.get(address) === 0);
-  roots.forEach(weigh);
-  placeBranches(roots, 0, -Math.PI / 2, turn);
-  const separate = nodes.filter((address) => !depths.has(address));
-  const outerRing = Math.max(0, ...rings.keys()) + 1;
-  separate.forEach((address, index) =>
-    addToRing(
-      outerRing,
-      address,
-      -Math.PI / 2 + (turn * index) / separate.length,
-    ),
-  );
+  placeRing(roots, 0, -Math.PI / 2, turn);
 
-  const positions = new Map<Address, { x: number; y: number }>();
+  const positions = new Map<Address, Point>();
   let radius = 0;
   for (const [depth, ring] of [...rings].sort(([a], [b]) => a - b)) {
     ring.sort((a, b) => a.angle - b.angle);
@@ -140,6 +156,35 @@ function radialPositions({
         y: radius * Math.sin(angle),
       });
     }
+  }
+
+  const branches = (rings.get(1) ?? []).map(({ address }) => address);
+  for (const address of branches) {
+    const origin = positions.get(address);
+    if (!origin) continue;
+    for (const child of children.get(address) ?? []) {
+      const point = nearbyPosition(origin, [...positions.values()]);
+      positions.set(child, point);
+      branches.push(child);
+    }
+  }
+
+  const separate = nodes.filter((address) => !depths.has(address));
+  if (separate.length) {
+    const connectedRadius = Math.max(
+      0,
+      ...[...positions.values()].map(({ x, y }) => Math.hypot(x, y)),
+    );
+    const spacingRadius =
+      separate.length > 1 ? 82 / (2 * Math.sin(Math.PI / separate.length)) : 0;
+    const outerRadius = Math.max(connectedRadius + 80, spacingRadius);
+    separate.forEach((address, index) => {
+      const angle = -Math.PI / 2 + (turn * index) / separate.length;
+      positions.set(address, {
+        x: outerRadius * Math.cos(angle),
+        y: outerRadius * Math.sin(angle),
+      });
+    });
   }
   return positions;
 }

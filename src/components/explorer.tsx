@@ -1955,7 +1955,7 @@ function GraphReadingGuide({
     },
     {
       label: "Indirect",
-      description: "Outer rings, two or more links away",
+      description: "Outer branches, two or more links away",
       dot: "branch-dot",
       count: counts.indirect,
     },
@@ -1964,9 +1964,9 @@ function GraphReadingGuide({
     <section className="graph-guide" aria-labelledby="graph-guide-heading">
       <h2 id="graph-guide-heading">How to read the graph</h2>
       <p id="graph-reading-guide">
-        Start with the gold addresses at the center. Each ring is one link
-        farther out. Arrows point from sender to recipient. Select an arrow to
-        see its transfers.
+        Start with the gold addresses at the center. Direct connections form a
+        ring, and deeper connections branch out from it. Select an arrow to see
+        transfers from sender to recipient.
       </p>
       <ol>
         {groups.map(({ label, description, dot, count }) => (
