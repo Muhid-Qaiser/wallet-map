@@ -6,6 +6,9 @@ import { shortAddress, type Address, type Connection } from "@/lib/domain";
 
 type Point = { x: number; y: number };
 
+const nodeSize = { root: 58, direct: 42, indirect: 34 };
+const preferredArrowLength = 68;
+
 type Props = {
   nodes: Address[];
   connections: Connection[];
@@ -63,32 +66,42 @@ const branchAngles = [
   }).flat(),
 ];
 
-function nearbyPosition(origin: Point, placed: Point[]): Point {
+function nearbyPosition(
+  origin: Point,
+  placed: Point[],
+  preferredDistance: number,
+): Point {
   const outward = Math.atan2(origin.y, origin.x);
-  let nearest: { point: Point; distance: number } | undefined;
-  for (let distance = 62; ; distance += 12) {
-    for (const offset of branchAngles) {
-      const dx = distance * Math.cos(outward + offset);
-      const dy = distance * Math.sin(outward + offset);
-      const point = { x: origin.x + dx, y: origin.y + dy };
-      const overlaps = placed.some(
-        (other) =>
-          Math.hypot((point.x - other.x) / 78, (point.y - other.y) / 62) < 1,
-      );
-      if (overlaps) continue;
+  let closest: { point: Point; deviation: number } | undefined;
+  for (let deviation = 0; ; deviation += 12) {
+    const distances = deviation
+      ? [preferredDistance - deviation, preferredDistance + deviation]
+      : [preferredDistance];
+    for (const distance of distances) {
+      if (distance < 62) continue;
+      for (const offset of branchAngles) {
+        const dx = distance * Math.cos(outward + offset);
+        const dy = distance * Math.sin(outward + offset);
+        const point = { x: origin.x + dx, y: origin.y + dy };
+        const overlaps = placed.some(
+          (other) =>
+            Math.hypot((point.x - other.x) / 78, (point.y - other.y) / 62) < 1,
+        );
+        if (overlaps) continue;
 
-      nearest ??= { point, distance };
-      const blocked = placed.some((other) => {
-        const x = other.x - origin.x;
-        const y = other.y - origin.y;
-        const along = (x * dx + y * dy) / distance;
-        const across = Math.abs(x * dy - y * dx) / distance;
-        return along > 0 && along < distance && across < 23;
-      });
-      if (!blocked) return point;
+        closest ??= { point, deviation };
+        const blocked = placed.some((other) => {
+          const x = other.x - origin.x;
+          const y = other.y - origin.y;
+          const along = (x * dx + y * dy) / distance;
+          const across = Math.abs(x * dy - y * dx) / distance;
+          return along > 0 && along < distance && across < 23;
+        });
+        if (!blocked) return point;
+      }
     }
-    // Prefer a short edge when every nearby route passes behind a node.
-    if (nearest && distance >= nearest.distance + 36) return nearest.point;
+    // Allow a modest change in length to keep the arrow clear of other nodes.
+    if (closest && deviation >= closest.deviation + 36) return closest.point;
   }
 }
 
@@ -149,7 +162,9 @@ function radialPositions({
     const spacing = depth === 0 ? 92 : 82;
     const spacingRadius =
       ring.length > 1 ? spacing / (2 * Math.sin(gap / 2)) : 0;
-    radius = Math.max(depth === 0 ? 0 : radius + 80, spacingRadius);
+    const firstHop =
+      preferredArrowLength + (nodeSize.root + nodeSize.direct) / 2;
+    radius = Math.max(depth === 0 ? 0 : radius + firstHop, spacingRadius);
     for (const { address, angle } of ring) {
       positions.set(address, {
         x: radius * Math.cos(angle),
@@ -162,8 +177,16 @@ function radialPositions({
   for (const address of branches) {
     const origin = positions.get(address);
     if (!origin) continue;
+    const parentSize =
+      depths.get(address) === 1 ? nodeSize.direct : nodeSize.indirect;
+    const preferredDistance =
+      preferredArrowLength + (parentSize + nodeSize.indirect) / 2;
     for (const child of children.get(address) ?? []) {
-      const point = nearbyPosition(origin, [...positions.values()]);
+      const point = nearbyPosition(
+        origin,
+        [...positions.values()],
+        preferredDistance,
+      );
       positions.set(child, point);
       branches.push(child);
     }
@@ -211,8 +234,8 @@ export default function Graph(props: Props) {
             "background-color": "#253951",
             "border-color": "#78a5ce",
             "border-width": 2,
-            width: 42,
-            height: 42,
+            width: nodeSize.direct,
+            height: nodeSize.direct,
             label: "data(label)",
             color: "#adbbcd",
             "font-size": 11,
@@ -230,8 +253,8 @@ export default function Graph(props: Props) {
           style: {
             "background-color": "#193b37",
             "border-color": "#70b6a2",
-            width: 34,
-            height: 34,
+            width: nodeSize.indirect,
+            height: nodeSize.indirect,
           },
         },
         {
@@ -247,8 +270,8 @@ export default function Graph(props: Props) {
           style: {
             "background-color": "#e9bd79",
             "border-color": "#f5dcae",
-            width: 58,
-            height: 58,
+            width: nodeSize.root,
+            height: nodeSize.root,
             color: "#f1dfc1",
             "border-width": 3,
           },
