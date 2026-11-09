@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { shortAddress, type Address, type Connection } from "@/lib/domain";
 
 type Point = { x: number; y: number };
+type RingNode = { address: Address; angle: number };
 
 const nodeSize = { root: 58, direct: 42, indirect: 34 };
 const preferredArrowLength = 68;
@@ -66,6 +67,74 @@ const branchAngles = [
   }).flat(),
 ];
 
+function positionsOverlap(a: Point, b: Point) {
+  return Math.hypot((a.x - b.x) / 78, (a.y - b.y) / 62) < 1;
+}
+
+function uniformFanPositions(
+  roots: RingNode[],
+  direct: RingNode[],
+  children: Map<Address, Address[]>,
+) {
+  const rootRadius = roots.length > 1 ? 46 : 0;
+  const firstAngle = direct[0]?.angle ?? 0;
+  const closestSpokes = Math.min(
+    2 * Math.PI,
+    ...direct.map(
+      ({ angle }, index) =>
+        (direct[index + 1]?.angle ?? firstAngle + 2 * Math.PI) - angle,
+    ),
+  );
+  // Each fan stays inside the angular sector of its direct wallet.
+  const maxFanSpan = Math.min((5 * Math.PI) / 6, closestSpokes * 1.8);
+  const directInset = (nodeSize.root + nodeSize.direct) / 2;
+  const branchInset = (nodeSize.direct + nodeSize.indirect) / 2;
+
+  for (
+    let arrowLength = preferredArrowLength;
+    ;
+    arrowLength += Math.max(10, arrowLength * 0.08)
+  ) {
+    const positions = new Map<Address, Point>();
+    for (const { address, angle } of roots) {
+      positions.set(address, {
+        x: rootRadius * Math.cos(angle),
+        y: rootRadius * Math.sin(angle),
+      });
+    }
+    const directRadius = rootRadius + directInset + arrowLength;
+    const branchRadius = branchInset + arrowLength;
+    for (const { address, angle } of direct) {
+      const origin = {
+        x: directRadius * Math.cos(angle),
+        y: directRadius * Math.sin(angle),
+      };
+      positions.set(address, origin);
+      const branch = children.get(address) ?? [];
+      const intervals = Math.max(1, branch.length - 1);
+      const span =
+        branch.length > 1 ? Math.min(maxFanSpan, (intervals * Math.PI) / 4) : 0;
+      branch.forEach((child, index) => {
+        const bearing = angle + span * (index / intervals - 0.5);
+        positions.set(child, {
+          x: origin.x + branchRadius * Math.cos(bearing),
+          y: origin.y + branchRadius * Math.sin(bearing),
+        });
+      });
+    }
+    const points = [...positions.values()];
+    if (
+      points.every((point, index) =>
+        points.every(
+          (other, otherIndex) =>
+            otherIndex >= index || !positionsOverlap(point, other),
+        ),
+      )
+    )
+      return { positions, arrowLength };
+  }
+}
+
 function nearbyPosition(
   origin: Point,
   placed: Point[],
@@ -83,11 +152,7 @@ function nearbyPosition(
         const dx = distance * Math.cos(outward + offset);
         const dy = distance * Math.sin(outward + offset);
         const point = { x: origin.x + dx, y: origin.y + dy };
-        const overlaps = placed.some(
-          (other) =>
-            Math.hypot((point.x - other.x) / 78, (point.y - other.y) / 62) < 1,
-        );
-        if (overlaps) continue;
+        if (placed.some((other) => positionsOverlap(point, other))) continue;
 
         closest ??= { point, deviation };
         const blocked = placed.some((other) => {
@@ -105,7 +170,7 @@ function nearbyPosition(
   }
 }
 
-function radialPositions({
+export function radialPositions({
   nodes,
   depths,
   parents,
@@ -118,7 +183,7 @@ function radialPositions({
   }
   const turn = 2 * Math.PI;
 
-  const rings = new Map<number, { address: Address; angle: number }[]>();
+  const rings = new Map<number, RingNode[]>();
   function addToRing(depth: number, address: Address, angle: number) {
     const ring = rings.get(depth) ?? [];
     ring.push({ address, angle });
@@ -147,45 +212,21 @@ function radialPositions({
   const roots = nodes.filter((address) => depths.get(address) === 0);
   placeRing(roots, 0, -Math.PI / 2, turn);
 
-  const positions = new Map<Address, Point>();
-  let radius = 0;
-  for (const [depth, ring] of [...rings].sort(([a], [b]) => a - b)) {
-    ring.sort((a, b) => a.angle - b.angle);
-    const first = ring[0];
-    if (!first) continue;
-    const gap = Math.min(
-      ...ring.map(
-        ({ angle }, index) =>
-          (ring[index + 1]?.angle ?? first.angle + turn) - angle,
-      ),
-    );
-    const spacing = depth === 0 ? 92 : 82;
-    const spacingRadius =
-      ring.length > 1 ? spacing / (2 * Math.sin(gap / 2)) : 0;
-    const firstHop =
-      preferredArrowLength + (nodeSize.root + nodeSize.direct) / 2;
-    radius = Math.max(depth === 0 ? 0 : radius + firstHop, spacingRadius);
-    for (const { address, angle } of ring) {
-      positions.set(address, {
-        x: radius * Math.cos(angle),
-        y: radius * Math.sin(angle),
-      });
-    }
-  }
-
-  const branches = (rings.get(1) ?? []).map(({ address }) => address);
+  const direct = rings.get(1) ?? [];
+  const { positions, arrowLength } = uniformFanPositions(
+    rings.get(0) ?? [],
+    direct,
+    children,
+  );
+  const branches = direct.flatMap(({ address }) => children.get(address) ?? []);
   for (const address of branches) {
     const origin = positions.get(address);
     if (!origin) continue;
-    const parentSize =
-      depths.get(address) === 1 ? nodeSize.direct : nodeSize.indirect;
-    const preferredDistance =
-      preferredArrowLength + (parentSize + nodeSize.indirect) / 2;
     for (const child of children.get(address) ?? []) {
       const point = nearbyPosition(
         origin,
         [...positions.values()],
-        preferredDistance,
+        arrowLength + nodeSize.indirect,
       );
       positions.set(child, point);
       branches.push(child);
@@ -297,7 +338,7 @@ export default function Graph(props: Props) {
         {
           selector: "edge",
           style: {
-            width: "mapData(count, 1, 10, 1.2, 4)",
+            width: 2.2,
             "line-color": "#3d716c",
             "target-arrow-color": "#73a99e",
             "target-arrow-shape": "triangle",
@@ -429,11 +470,11 @@ export default function Graph(props: Props) {
           props.depths.get(c.from) === 0 || props.depths.get(c.to) === 0;
         const edge = cy.getElementById(c.id);
         if (edge.length)
-          edge.data({ count, label }).toggleClass("direct", direct);
+          edge.data("label", label).toggleClass("direct", direct);
         else
           cy.add({
             group: "edges",
-            data: { id: c.id, source: c.from, target: c.to, count, label },
+            data: { id: c.id, source: c.from, target: c.to, label },
             classes: direct ? "direct" : "",
           });
       }
