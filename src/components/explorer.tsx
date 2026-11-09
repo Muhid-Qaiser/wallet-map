@@ -170,6 +170,7 @@ export default function Explorer() {
   });
   const [selection, setSelection] = useState<Selection>(null);
   const [view, setView] = useState<"graph" | "table">("graph");
+  const [showAllConnections, setShowAllConnections] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{
@@ -179,7 +180,6 @@ export default function Explorer() {
   const [saved, setSaved] = useState<Investigation[]>([]);
   const [modal, setModal] = useState<"saved" | "compare" | "help" | null>(null);
   const [compare, setCompare] = useState("");
-  const [layout, setLayout] = useState(0);
   const [zoom, setZoom] = useState(0);
   const [fit, setFit] = useState(0);
   const [undo, setUndo] = useState<Investigation[]>([]);
@@ -204,6 +204,18 @@ export default function Explorer() {
     () => (investigation ? graphData(investigation, filters) : null),
     [investigation, filters],
   );
+  const graphConnections = graph
+    ? showAllConnections
+      ? graph.connections
+      : graph.pathConnections
+    : [];
+  const extraConnections = graph
+    ? graph.connections.length - graph.pathConnections.length
+    : 0;
+  const connectionToggleLabel = showAllConnections
+    ? "Show paths only"
+    : "Show all connections";
+  const toggleConnections = () => setShowAllConnections((value) => !value);
   const branchAddresses =
     investigation && graph
       ? nextBranchAddresses(investigation, graph.nodes)
@@ -309,6 +321,7 @@ export default function Explorer() {
     abort.current?.abort();
     setBusy(null);
     setFullScreen(false);
+    setShowAllConnections(false);
     setInvestigation(next);
     setSelection(
       next.roots[0] ? { kind: "address", address: next.roots[0] } : null,
@@ -318,7 +331,6 @@ export default function Explorer() {
     setMessage(null);
     setQuery(next.roots[0] ?? "");
     setQueryChainId(next.snapshot.chainId);
-    setLayout(0);
     setZoom(0);
     setBalance(null);
     setTransferLimit(40);
@@ -507,6 +519,7 @@ export default function Explorer() {
           current?.snapshot.chainId === snapshot.chainId ? current.notes : {},
       }));
       setSelection({ kind: "address", address: address.data });
+      setShowAllConnections(false);
       setFilters({ asset: "all", direction: "both", minimum: "" });
       setUndo([]);
       setBalance(null);
@@ -1096,6 +1109,23 @@ export default function Explorer() {
               Compare wallet
             </button>
           </div>
+          {view === "graph" && (
+            <GraphReadingGuide graph={graph}>
+              {extraConnections > 0 && (
+                <div className="graph-guide-actions">
+                  <p>
+                    {showAllConnections
+                      ? "Showing every connection in the graph."
+                      : `Paths view keeps a route to each connected address and hides ${extraConnections} extra ${extraConnections === 1 ? "connection" : "connections"}.`}
+                  </p>
+                  <button className="text-button" onClick={toggleConnections}>
+                    <Network size={15} />
+                    {connectionToggleLabel}
+                  </button>
+                </div>
+              )}
+            </GraphReadingGuide>
+          )}
           <div
             ref={canvas}
             role={fullScreen ? "dialog" : undefined}
@@ -1109,8 +1139,9 @@ export default function Explorer() {
                   <Graph
                     key={investigation.id}
                     nodes={graph.nodes}
-                    connections={graph.connections}
+                    connections={graphConnections}
                     depths={graph.depths}
+                    parents={graph.parents}
                     roots={investigation.roots}
                     pinned={investigation.pinned}
                     shared={graph.shared}
@@ -1120,9 +1151,9 @@ export default function Explorer() {
                         ? selection.address
                         : (selection?.id ?? null)
                     }
-                    layout={layout}
                     zoom={zoom}
                     fit={fit}
+                    fullScreen={fullScreen}
                     onSelect={select}
                     onPosition={position}
                   />
@@ -1200,14 +1231,17 @@ export default function Explorer() {
                   <span>
                     {graph.nodes.length} addresses
                     <span className="dot-separator">·</span>
-                    {graph.connections.length} connections
+                    {view === "graph"
+                      ? graphConnections.length
+                      : graph.connections.length}{" "}
+                    connections
                   </span>
                   {graph.shared.size > 0 && (
                     <span className="shared-indicator">
                       {graph.shared.size} shared counterparties
                     </span>
                   )}
-                  {view === "graph" && (
+                  {fullScreen && (
                     <span className="direction-hint">
                       Arrows point from sender to recipient
                     </span>
@@ -1266,34 +1300,51 @@ export default function Explorer() {
                     </button>
                     <span />
                     <button
-                      aria-label="Arrange graph"
-                      onClick={() => setLayout((v) => v + 1)}
+                      aria-label="Arrange by distance"
+                      title="Arrange by distance"
+                      onClick={() => {
+                        if (Object.keys(investigation.positions).length) {
+                          change((current) => ({ ...current, positions: {} }));
+                        }
+                        setFit((v) => v + 1);
+                      }}
                     >
                       <Expand size={17} />
                     </button>
+                    {fullScreen && extraConnections > 0 && (
+                      <button
+                        aria-label={connectionToggleLabel}
+                        title={connectionToggleLabel}
+                        onClick={toggleConnections}
+                      >
+                        <Network size={17} />
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className="canvas-bottom">
-                  <div className="legend">
-                    <span>
-                      <i className="root-dot" />
-                      Starting wallet
-                    </span>
-                    <span>
-                      <i className="address-dot" />
-                      Direct
-                    </span>
-                    <span>
-                      <i className="branch-dot" />
-                      Indirect
-                    </span>
-                    {investigation.roots.length > 1 && (
+                  {fullScreen && (
+                    <div className="legend">
                       <span>
-                        <i className="shared-dot" />
-                        Shared
+                        <i className="root-dot" />
+                        Starting wallet
                       </span>
-                    )}
-                  </div>
+                      <span>
+                        <i className="address-dot" />
+                        Direct
+                      </span>
+                      <span>
+                        <i className="branch-dot" />
+                        Indirect
+                      </span>
+                      {investigation.roots.length > 1 && (
+                        <span>
+                          <i className="shared-dot" />
+                          Shared
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <button
                     className="text-button"
                     disabled={!undo.length || !!busy}
@@ -1871,6 +1922,75 @@ export default function Explorer() {
         )}
       </dialog>
     </div>
+  );
+}
+
+function GraphReadingGuide({
+  graph,
+  children,
+}: {
+  graph: ReturnType<typeof graphData> | null;
+  children: React.ReactNode;
+}) {
+  const counts = { start: 0, direct: 0, indirect: 0, separate: 0 };
+  for (const address of graph?.nodes ?? []) {
+    const depth = graph?.depths.get(address);
+    if (depth === 0) counts.start++;
+    else if (depth === 1) counts.direct++;
+    else if (depth !== undefined) counts.indirect++;
+    else counts.separate++;
+  }
+  const groups = [
+    {
+      label: counts.start > 1 ? "Starting wallets" : "Starting wallet",
+      description: "Where the graph begins",
+      dot: "root-dot",
+      count: counts.start,
+    },
+    {
+      label: "Direct",
+      description: "One link away",
+      dot: "address-dot",
+      count: counts.direct,
+    },
+    {
+      label: "Indirect",
+      description: "Two or more links away",
+      dot: "branch-dot",
+      count: counts.indirect,
+    },
+  ];
+  return (
+    <section className="graph-guide" aria-labelledby="graph-guide-heading">
+      <h2 id="graph-guide-heading">How to read the graph</h2>
+      <p id="graph-reading-guide">
+        Start with the gold addresses. The groups show how many links away each
+        address is. Arrows point from sender to recipient. Select an arrow to
+        see its transfers.
+      </p>
+      <ol>
+        {groups.map(({ label, description, dot, count }) => (
+          <li key={dot}>
+            <div className="graph-guide-group">
+              <i className={dot} aria-hidden="true" />
+              <strong>{label}</strong>
+              {graph && <span aria-label={`${count} addresses`}>{count}</span>}
+            </div>
+            <p>{description}</p>
+          </li>
+        ))}
+      </ol>
+      {((graph && graph.shared.size > 0) || counts.separate > 0) && (
+        <p className="graph-guide-note">
+          {graph &&
+            graph.shared.size > 0 &&
+            "Purple dashed outlines mark addresses linked to both starting wallets. "}
+          {counts.separate > 0 &&
+            "Gray dashed outlines mark addresses outside the visible paths."}
+        </p>
+      )}
+      {children}
+    </section>
   );
 }
 

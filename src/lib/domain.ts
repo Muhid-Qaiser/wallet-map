@@ -254,7 +254,7 @@ export function counterparties(transfers: Transfer[], address: Address) {
     .map(([address]) => address);
 }
 
-function graphDepths(roots: Address[], connections: Connection[]) {
+function graphPaths(roots: Address[], connections: Connection[]) {
   const adjacent = new Map<Address, Address[]>();
   for (const { from, to } of connections) {
     const fromNeighbors = adjacent.get(from) ?? [];
@@ -265,16 +265,18 @@ function graphDepths(roots: Address[], connections: Connection[]) {
     adjacent.set(to, toNeighbors);
   }
   const depths = new Map(roots.map((root) => [root, 0]));
+  const parents = new Map<Address, Address>();
   const queue = [...roots];
   for (const address of queue) {
     const depth = depths.get(address) ?? 0;
     for (const neighbor of adjacent.get(address) ?? []) {
       if (depths.has(neighbor)) continue;
       depths.set(neighbor, depth + 1);
+      parents.set(neighbor, address);
       queue.push(neighbor);
     }
   }
-  return depths;
+  return { depths, parents };
 }
 
 export function graphData(investigation: Investigation, filters: Filters) {
@@ -283,7 +285,9 @@ export function graphData(investigation: Investigation, filters: Filters) {
     return {
       nodes: [],
       connections: [],
+      pathConnections: [],
       depths: new Map<Address, number>(),
+      parents: new Map<Address, Address>(),
       hiddenCount: 0,
       shared: new Set<Address>(),
       transfers: [],
@@ -329,10 +333,25 @@ export function graphData(investigation: Investigation, filters: Filters) {
       : [],
   );
   const visibleConnections = connections.slice(0, 300);
+  const { depths, parents } = graphPaths(
+    investigation.roots,
+    visibleConnections,
+  );
+  const roots = new Set(investigation.roots);
+  const pathConnections = visibleConnections.filter(
+    ({ from, to }) =>
+      parents.get(from) === to ||
+      parents.get(to) === from ||
+      (roots.has(from) && shared.has(to)) ||
+      (roots.has(to) && shared.has(from)) ||
+      (from !== to && roots.has(from) && roots.has(to)),
+  );
   return {
     nodes: [...nodes].slice(0, 100),
     connections: visibleConnections,
-    depths: graphDepths(investigation.roots, visibleConnections),
+    pathConnections,
+    depths,
+    parents,
     hiddenCount: hiddenCount + Math.max(0, connections.length - 300),
     shared,
     transfers,

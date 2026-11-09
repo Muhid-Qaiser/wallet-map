@@ -127,6 +127,9 @@ test("expands indirect connections and fits the graph to full screen", async ({
   page,
 }) => {
   await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "How to read the graph" }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Open sample investigation", exact: true })
     .click();
@@ -135,10 +138,26 @@ test("expands indirect connections and fits the graph to full screen", async ({
   await page
     .getByRole("button", { name: "Expand next hop", exact: true })
     .click();
-  await expect(graph).not.toHaveAttribute("aria-label", /11 addresses/);
+  await expect(graph).toHaveAttribute(
+    "aria-label",
+    /15 addresses, 17 directed connections/,
+  );
+  await page.getByRole("button", { name: "Show all connections" }).click();
+  await expect(graph).toHaveAttribute(
+    "aria-label",
+    /15 addresses, 19 directed connections/,
+  );
   await page.getByRole("button", { name: "Open full screen" }).click();
   const fullScreenBounds = await graph.boundingBox();
   expect(fullScreenBounds?.width).toBe(page.viewportSize()?.width);
+  await page
+    .getByRole("dialog", { name: "Wallet graph" })
+    .getByRole("button", { name: "Show paths only" })
+    .click();
+  await expect(graph).toHaveAttribute(
+    "aria-label",
+    /15 addresses, 17 directed connections/,
+  );
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("button", { name: "Open full screen" }),

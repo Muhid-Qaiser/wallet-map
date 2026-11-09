@@ -328,7 +328,65 @@ kbd {
 .export-menu button:hover:not(:disabled) {
   background: var(--subtle);
 }
+.graph-guide {
+  padding: 13px 20px 15px;
+  border-bottom: 1px solid var(--border);
+  background: #141d29;
+}
+.graph-guide h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.graph-guide p {
+  margin: 0;
+  color: #a9bbd0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.graph-guide ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 11px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.graph-guide li {
+  padding: 7px 0 0;
+  border-top: 1px solid var(--border);
+}
+.graph-guide-group {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: baseline;
+  justify-items: start;
+  gap: 6px;
+  margin-bottom: 2px;
+  font-size: 12px;
+}
+.graph-guide-group i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.graph-guide-group span {
+  color: #a9bbd0;
+  font-family: var(--mono);
+}
+.graph-guide .graph-guide-note {
+  margin-top: 9px;
+}
+.graph-guide-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
 .canvas-area {
+  container-type: inline-size;
   flex: 1;
   min-height: 520px;
   position: relative;
@@ -428,7 +486,34 @@ kbd {
   pointer-events: none;
 }
 .canvas-bottom > button {
+  margin-left: auto;
   pointer-events: auto;
+}
+@container (max-width: 579px) {
+  .canvas-info {
+    max-width: calc(100% - 228px);
+    gap: 4px;
+  }
+  .graph-controls {
+    flex-direction: row;
+    left: 15px;
+    right: auto;
+    bottom: 12px;
+  }
+  .graph-controls > span {
+    width: 1px;
+    height: auto;
+  }
+  .canvas-full-screen .canvas-bottom {
+    bottom: 66px;
+  }
+}
+@container (max-width: 335px) {
+  .canvas-info {
+    top: 62px;
+    right: 15px;
+    max-width: none;
+  }
 }
 .legend {
   display: flex;

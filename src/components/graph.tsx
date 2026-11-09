@@ -2,104 +2,143 @@
 
 import cytoscape, { type Core } from "cytoscape";
 import { useEffect, useRef } from "react";
-import {
-  addressSchema,
-  shortAddress,
-  type Address,
-  type Connection,
-} from "@/lib/domain";
+import { shortAddress, type Address, type Connection } from "@/lib/domain";
 
 type Props = {
   nodes: Address[];
   connections: Connection[];
   depths: Map<Address, number>;
+  parents: Map<Address, Address>;
   roots: Address[];
   pinned: Address[];
   shared: Set<Address>;
   positions: Record<string, { x: number; y: number }>;
   selected: string | null;
-  layout: number;
   zoom: number;
   fit: number;
+  fullScreen: boolean;
   onSelect: (kind: "address" | "connection", id: string) => void;
   onPosition: (address: string, position: { x: number; y: number }) => void;
 };
 
 function fitGraph(cy: Core, props: Props) {
   cy.resize();
-  const positions = ringPositions(cy, props);
+  const positions = layerPositions(cy, props);
   cy.batch(() => {
     for (const address of props.nodes) {
       const position = props.positions[address] ?? positions.get(address);
       if (position) cy.getElementById(address).position(position);
     }
   });
-  cy.fit(undefined, Math.min(48, Math.min(cy.width(), cy.height()) * 0.09));
+  if (!isPortrait(cy) || !cy.nodes().length) {
+    cy.fit(undefined, Math.min(48, Math.min(cy.width(), cy.height()) * 0.09));
+    return;
+  }
+  const bounds = cy.elements().boundingBox();
+  const width = cy.width();
+  const height = cy.height();
+  const top = width <= 335 ? 122 : 76;
+  const bottom = props.fullScreen ? 110 : 66;
+  const zoom = Math.max(
+    cy.minZoom(),
+    Math.min(
+      cy.maxZoom(),
+      (width - 36) / bounds.w,
+      (height - top - bottom) / bounds.h,
+    ),
+  );
+  cy.viewport({
+    zoom,
+    pan: {
+      x: width / 2 - ((bounds.x1 + bounds.x2) / 2) * zoom,
+      y: (height + top - bottom) / 2 - ((bounds.y1 + bounds.y2) / 2) * zoom,
+    },
+  });
 }
 
-function ringPositions(
+function isPortrait(cy: Core) {
+  return cy.width() < 580;
+}
+
+function layerPositions(
   cy: Core,
-  {
-    nodes,
-    depths,
-    connections,
-  }: Pick<Props, "nodes" | "depths" | "connections">,
+  { nodes, depths, parents }: Pick<Props, "nodes" | "depths" | "parents">,
 ) {
-  const rings = new Map<number, Address[]>();
-  const horizontalScale = cy.width() < cy.height() ? 0.72 : 1;
-  const outerRing = Math.max(0, ...depths.values()) + 1;
+  const layers = new Map<number, Address[]>();
+  const portrait = isPortrait(cy);
+  const separateLayer = Math.max(0, ...depths.values()) + 1;
   for (const address of nodes) {
-    const depth = depths.get(address) ?? outerRing;
-    const ring = rings.get(depth) ?? [];
-    ring.push(address);
-    rings.set(depth, ring);
+    const depth = depths.get(address) ?? separateLayer;
+    const layer = layers.get(depth) ?? [];
+    layer.push(address);
+    layers.set(depth, layer);
   }
-  const positions = new Map<Address, { x: number; y: number }>();
-  let radius = 0;
-  for (const [depth, ring] of [...rings].sort(([a], [b]) => a - b)) {
-    if (depth === 0) radius = ring.length > 1 ? 72 : 0;
-    else radius = Math.max(radius + 130, (ring.length * 84) / (2 * Math.PI));
-    const slots =
-      depth > 1
-        ? Math.max(ring.length, Math.floor((2 * Math.PI * radius) / 84))
-        : ring.length;
-    const angles = Array.from(
-      { length: slots },
-      (_, index) =>
-        (index * 2 * Math.PI) / slots - (depth === 0 ? 0 : Math.PI / 2),
-    );
-    for (const address of ring) {
-      const parent =
-        depth > 1
-          ? connections.find(
-              (edge) =>
-                (edge.from === address && depths.get(edge.to) === depth - 1) ||
-                (edge.to === address && depths.get(edge.from) === depth - 1),
-            )
-          : undefined;
-      const parentPosition = parent
-        ? positions.get(parent.from === address ? parent.to : parent.from)
-        : undefined;
-      let slot = 0;
-      if (parentPosition) {
-        const parentAngle = Math.atan2(
-          parentPosition.y,
-          parentPosition.x / horizontalScale,
-        );
-        for (let index = 1; index < angles.length; index++) {
-          if (
-            Math.cos(angles[index] - parentAngle) >
-            Math.cos(angles[slot] - parentAngle)
-          )
-            slot = index;
-        }
+
+  const children = new Map<Address, Address[]>();
+  for (const [address, parent] of parents) {
+    const branch = children.get(parent) ?? [];
+    branch.push(address);
+    children.set(parent, branch);
+  }
+  const order = new Map<Address, number>();
+  const centers = new Map<Address, number>();
+  const staggered = new Set<Address>();
+  let lanes = 0;
+  function visitBranch(address: Address) {
+    order.set(address, order.size);
+    const start = lanes;
+    const branch = children.get(address) ?? [];
+    if (!branch.length) lanes++;
+    for (const [index, child] of branch.entries()) {
+      if (staggered.has(child)) continue;
+      const sibling = branch[index + 1];
+      if (sibling && !children.has(child) && !children.has(sibling)) {
+        order.set(child, order.size);
+        order.set(sibling, order.size);
+        centers.set(child, lanes - 0.3);
+        centers.set(sibling, lanes + 0.3);
+        staggered.add(sibling);
+        lanes++;
+      } else {
+        visitBranch(child);
       }
-      const [angle] = angles.splice(slot, 1);
-      positions.set(address, {
-        x: Math.cos(angle) * radius * horizontalScale,
-        y: Math.sin(angle) * radius,
-      });
     }
+    centers.set(address, (start + lanes - 1) / 2);
+  }
+  for (const address of nodes) {
+    if (!parents.has(address)) visitBranch(address);
+  }
+  const wrapLayers = lanes > (portrait ? 8 : 14);
+
+  const positions = new Map<Address, { x: number; y: number }>();
+  const step = portrait ? 85 : 106;
+  const spacing = portrait ? 94 : 76;
+  let offset = 0;
+  for (const [, layer] of [...layers].sort(([a], [b]) => a - b)) {
+    layer.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+    const breadth = wrapLayers
+      ? Math.min(
+          layer.length,
+          portrait ? 4 : Math.max(6, Math.ceil(Math.sqrt(layer.length))),
+        )
+      : layer.length;
+    layer.forEach((address, index) => {
+      const track = Math.floor(index / breadth);
+      const count = Math.min(breadth, layer.length - track * breadth);
+      const cross =
+        spacing *
+        (wrapLayers
+          ? (index % breadth) - (count - 1) / 2
+          : (centers.get(address) ?? 0) - (lanes - 1) / 2);
+      const along =
+        offset + (wrapLayers ? track * step : staggered.has(address) ? 46 : 0);
+      positions.set(
+        address,
+        portrait ? { x: cross, y: along } : { x: along, y: cross },
+      );
+    });
+    offset +=
+      (Math.ceil(layer.length / breadth) - 1) * step + (portrait ? 115 : 164);
   }
   return positions;
 }
@@ -171,8 +210,8 @@ export default function Graph(props: Props) {
         {
           selector: "node.second",
           style: {
-            "background-color": "#6ca9ca",
-            "border-color": "#acd5e9",
+            "background-color": "#b69460",
+            "border-color": "#f5dcae",
             width: 54,
             height: 54,
           },
@@ -203,6 +242,7 @@ export default function Graph(props: Props) {
           selector: "edge.direct",
           style: { "line-color": "#527392", "target-arrow-color": "#9cb9d7" },
         },
+        { selector: "edge.muted", style: { opacity: 0.18 } },
         {
           selector: "node.highlighted",
           style: {
@@ -253,7 +293,13 @@ export default function Graph(props: Props) {
       )
         callbacks.current.onPosition(id, { x: p.x, y: p.y });
     });
-    const resize = new ResizeObserver(() => cy.resize());
+    let portrait = isPortrait(cy);
+    const resize = new ResizeObserver(() => {
+      cy.resize();
+      const nextPortrait = isPortrait(cy);
+      if (nextPortrait !== portrait) fitGraph(cy, callbacks.current);
+      portrait = nextPortrait;
+    });
     resize.observe(container.current);
     core.current = cy;
     return () => {
@@ -269,10 +315,10 @@ export default function Graph(props: Props) {
       ...props.nodes,
       ...props.connections.map((c) => c.id),
     ]);
-    const positions = ringPositions(cy, {
+    const positions = layerPositions(cy, {
       nodes: props.nodes,
       depths: props.depths,
-      connections: props.connections,
+      parents: props.parents,
     });
     cy.batch(() => {
       cy.elements()
@@ -327,6 +373,7 @@ export default function Graph(props: Props) {
     props.nodes,
     props.connections,
     props.depths,
+    props.parents,
     props.roots,
     props.pinned,
     props.shared,
@@ -335,30 +382,21 @@ export default function Graph(props: Props) {
   useEffect(() => {
     const cy = core.current;
     if (!cy) return;
-    cy.elements().removeClass("highlighted");
+    cy.elements().removeClass("highlighted muted");
     if (props.selected) {
       const selected = cy.getElementById(props.selected);
       selected.union(selected.connectedNodes()).addClass("highlighted");
+      if (
+        selected.isNode() &&
+        !selected.hasClass("root") &&
+        !selected.hasClass("second")
+      ) {
+        cy.edges().not(selected.connectedEdges()).addClass("muted");
+      } else if (selected.isEdge()) {
+        cy.edges().not(selected).addClass("muted");
+      }
     }
-  }, [props.selected, props.nodes, props.connections]);
-  useEffect(() => {
-    const cy = core.current;
-    if (!cy || props.layout === 0) return;
-    cy.layout({
-      name: "cose",
-      animate: false,
-      fit: true,
-      padding: 60,
-      nodeRepulsion: () => 200000,
-      idealEdgeLength: () => 150,
-    }).run();
-    cy.nodes().forEach((node) => {
-      const address = addressSchema.safeParse(node.id());
-      if (address.success) props.onPosition(address.data, node.position());
-    });
-    // Position updates should not restart the requested arrangement.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.layout]);
+  }, [props.selected, props.nodes, props.connections, props.roots]);
   useEffect(() => {
     const cy = core.current;
     if (!cy || props.zoom === 0) return;
@@ -379,6 +417,7 @@ export default function Graph(props: Props) {
       className="graph-canvas"
       role="img"
       aria-label={`Wallet relationship graph: ${props.nodes.length} addresses, ${props.connections.length} directed connections. Use the table view for keyboard access.`}
+      aria-describedby="graph-reading-guide"
       data-testid="graph"
     />
   );
