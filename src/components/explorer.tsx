@@ -1300,8 +1300,8 @@ export default function Explorer() {
                     </button>
                     <span />
                     <button
-                      aria-label="Arrange by distance"
-                      title="Arrange by distance"
+                      aria-label="Arrange in rings"
+                      title="Arrange in rings"
                       onClick={() => {
                         if (Object.keys(investigation.positions).length) {
                           change((current) => ({ ...current, positions: {} }));
@@ -1943,19 +1943,19 @@ function GraphReadingGuide({
   const groups = [
     {
       label: counts.start > 1 ? "Starting wallets" : "Starting wallet",
-      description: "Where the graph begins",
+      description: "At the center",
       dot: "root-dot",
       count: counts.start,
     },
     {
       label: "Direct",
-      description: "One link away",
+      description: "First ring, one link away",
       dot: "address-dot",
       count: counts.direct,
     },
     {
       label: "Indirect",
-      description: "Two or more links away",
+      description: "Outer rings, two or more links away",
       dot: "branch-dot",
       count: counts.indirect,
     },
@@ -1964,8 +1964,8 @@ function GraphReadingGuide({
     <section className="graph-guide" aria-labelledby="graph-guide-heading">
       <h2 id="graph-guide-heading">How to read the graph</h2>
       <p id="graph-reading-guide">
-        Start with the gold addresses. The groups show how many links away each
-        address is. Arrows point from sender to recipient. Select an arrow to
+        Start with the gold addresses at the center. Each ring is one link
+        farther out. Arrows point from sender to recipient. Select an arrow to
         see its transfers.
       </p>
       <ol>

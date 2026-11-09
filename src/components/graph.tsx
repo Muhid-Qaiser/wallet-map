@@ -21,15 +21,8 @@ type Props = {
   onPosition: (address: string, position: { x: number; y: number }) => void;
 };
 
-function fitGraph(cy: Core, props: Props) {
+function fitGraph(cy: Core, fullScreen: boolean) {
   cy.resize();
-  const positions = layerPositions(cy, props);
-  cy.batch(() => {
-    for (const address of props.nodes) {
-      const position = props.positions[address] ?? positions.get(address);
-      if (position) cy.getElementById(address).position(position);
-    }
-  });
   if (!isPortrait(cy) || !cy.nodes().length) {
     cy.fit(undefined, Math.min(48, Math.min(cy.width(), cy.height()) * 0.09));
     return;
@@ -38,7 +31,7 @@ function fitGraph(cy: Core, props: Props) {
   const width = cy.width();
   const height = cy.height();
   const top = width <= 335 ? 122 : 76;
-  const bottom = props.fullScreen ? 110 : 66;
+  const bottom = fullScreen ? 110 : 66;
   const zoom = Math.max(
     cy.minZoom(),
     Math.min(
@@ -60,85 +53,91 @@ function isPortrait(cy: Core) {
   return cy.width() < 580;
 }
 
-function layerPositions(
-  cy: Core,
-  { nodes, depths, parents }: Pick<Props, "nodes" | "depths" | "parents">,
-) {
-  const layers = new Map<number, Address[]>();
-  const portrait = isPortrait(cy);
-  const separateLayer = Math.max(0, ...depths.values()) + 1;
-  for (const address of nodes) {
-    const depth = depths.get(address) ?? separateLayer;
-    const layer = layers.get(depth) ?? [];
-    layer.push(address);
-    layers.set(depth, layer);
-  }
-
+function radialPositions({
+  nodes,
+  depths,
+  parents,
+}: Pick<Props, "nodes" | "depths" | "parents">) {
   const children = new Map<Address, Address[]>();
   for (const [address, parent] of parents) {
     const branch = children.get(parent) ?? [];
     branch.push(address);
     children.set(parent, branch);
   }
-  const order = new Map<Address, number>();
-  const centers = new Map<Address, number>();
-  const staggered = new Set<Address>();
-  let lanes = 0;
-  function visitBranch(address: Address) {
-    order.set(address, order.size);
-    const start = lanes;
+  const turn = 2 * Math.PI;
+  const weights = new Map<Address, number>();
+  function weigh(address: Address): number {
     const branch = children.get(address) ?? [];
-    if (!branch.length) lanes++;
-    for (const [index, child] of branch.entries()) {
-      if (staggered.has(child)) continue;
-      const sibling = branch[index + 1];
-      if (sibling && !children.has(child) && !children.has(sibling)) {
-        order.set(child, order.size);
-        order.set(sibling, order.size);
-        centers.set(child, lanes - 0.3);
-        centers.set(sibling, lanes + 0.3);
-        staggered.add(sibling);
-        lanes++;
-      } else {
-        visitBranch(child);
-      }
+    const weight = branch.reduce((sum, child) => sum + weigh(child), 0) || 1;
+    weights.set(address, weight);
+    return weight;
+  }
+
+  const rings = new Map<number, { address: Address; angle: number }[]>();
+  function addToRing(depth: number, address: Address, angle: number) {
+    const ring = rings.get(depth) ?? [];
+    ring.push({ address, angle });
+    rings.set(depth, ring);
+  }
+  function placeBranches(
+    branch: Address[],
+    depth: number,
+    start: number,
+    span: number,
+  ) {
+    const total = branch.reduce(
+      (sum, address) => sum + (weights.get(address) ?? 1),
+      0,
+    );
+    for (const address of branch) {
+      const sector = (span * (weights.get(address) ?? 1)) / total;
+      const angle = start + sector / 2;
+      addToRing(depth, address, angle);
+      // Keep a branch's children facing outward, even when it has the ring to itself.
+      const childSpan = depth === 0 ? sector : Math.min(sector, Math.PI * 0.85);
+      placeBranches(
+        children.get(address) ?? [],
+        depth + 1,
+        angle - childSpan / 2,
+        childSpan,
+      );
+      start += sector;
     }
-    centers.set(address, (start + lanes - 1) / 2);
   }
-  for (const address of nodes) {
-    if (!parents.has(address)) visitBranch(address);
-  }
-  const wrapLayers = lanes > (portrait ? 8 : 14);
+
+  const roots = nodes.filter((address) => depths.get(address) === 0);
+  roots.forEach(weigh);
+  placeBranches(roots, 0, -Math.PI / 2, turn);
+  const separate = nodes.filter((address) => !depths.has(address));
+  const outerRing = Math.max(0, ...rings.keys()) + 1;
+  separate.forEach((address, index) =>
+    addToRing(
+      outerRing,
+      address,
+      -Math.PI / 2 + (turn * index) / separate.length,
+    ),
+  );
 
   const positions = new Map<Address, { x: number; y: number }>();
-  const step = portrait ? 85 : 106;
-  const spacing = portrait ? 94 : 76;
-  let offset = 0;
-  for (const [, layer] of [...layers].sort(([a], [b]) => a - b)) {
-    layer.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
-    const breadth = wrapLayers
-      ? Math.min(
-          layer.length,
-          portrait ? 4 : Math.max(6, Math.ceil(Math.sqrt(layer.length))),
-        )
-      : layer.length;
-    layer.forEach((address, index) => {
-      const track = Math.floor(index / breadth);
-      const count = Math.min(breadth, layer.length - track * breadth);
-      const cross =
-        spacing *
-        (wrapLayers
-          ? (index % breadth) - (count - 1) / 2
-          : (centers.get(address) ?? 0) - (lanes - 1) / 2);
-      const along =
-        offset + (wrapLayers ? track * step : staggered.has(address) ? 46 : 0);
-      positions.set(
-        address,
-        portrait ? { x: cross, y: along } : { x: along, y: cross },
-      );
-    });
-    offset +=
-      (Math.ceil(layer.length / breadth) - 1) * step + (portrait ? 115 : 164);
+  let radius = 0;
+  for (const [depth, ring] of [...rings].sort(([a], [b]) => a - b)) {
+    ring.sort((a, b) => a.angle - b.angle);
+    const first = ring[0];
+    if (!first) continue;
+    const gap = Math.min(
+      ...ring.map(
+        ({ angle }, index) =>
+          (ring[index + 1]?.angle ?? first.angle + turn) - angle,
+      ),
+    );
+    const spacingRadius = ring.length > 1 ? 92 / (2 * Math.sin(gap / 2)) : 0;
+    radius = Math.max(depth === 0 ? 0 : radius + 114, spacingRadius);
+    for (const { address, angle } of ring) {
+      positions.set(address, {
+        x: radius * Math.cos(angle),
+        y: radius * Math.sin(angle),
+      });
+    }
   }
   return positions;
 }
@@ -297,7 +296,7 @@ export default function Graph(props: Props) {
     const resize = new ResizeObserver(() => {
       cy.resize();
       const nextPortrait = isPortrait(cy);
-      if (nextPortrait !== portrait) fitGraph(cy, callbacks.current);
+      if (nextPortrait !== portrait) fitGraph(cy, callbacks.current.fullScreen);
       portrait = nextPortrait;
     });
     resize.observe(container.current);
@@ -315,7 +314,7 @@ export default function Graph(props: Props) {
       ...props.nodes,
       ...props.connections.map((c) => c.id),
     ]);
-    const positions = layerPositions(cy, {
+    const positions = radialPositions({
       nodes: props.nodes,
       depths: props.depths,
       parents: props.parents,
@@ -409,7 +408,7 @@ export default function Graph(props: Props) {
     });
   }, [props.zoom]);
   useEffect(() => {
-    if (core.current) fitGraph(core.current, callbacks.current);
+    if (core.current) fitGraph(core.current, callbacks.current.fullScreen);
   }, [props.fit]);
   return (
     <div
